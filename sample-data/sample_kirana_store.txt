@@ -1,0 +1,26 @@
+Store Name: Shree Umiya Kirana Store
+Owner: Rameshbhai Patel
+Language: Gujarati
+Hours: 9AM - 9PM (Monday to Saturday), 9AM - 1PM (Sunday)
+
+Products & Prices:
+- Toor Dal: Rs 45/kg
+- Chana Dal: Rs 50/kg
+- Moong Dal: Rs 60/kg
+- Basmati Rice: Rs 80/kg
+- Common Rice: Rs 35/kg
+- Sugar: Rs 42/kg
+- Wheat Flour (Atta) 10kg: Rs 320
+- Mustard Oil 1L: Rs 140
+- Sunflower Oil 1L: Rs 110
+- Salt 1kg: Rs 20
+- Turmeric Powder 100g: Rs 35
+- Red Chili Powder 100g: Rs 45
+
+Services:
+- Home delivery available for orders above Rs 500
+- Bulk discount: 5% off on orders above Rs 2000
+- UPI payments accepted (Google Pay, PhonePe, Paytm)
+
+Contact: +91-98765-43210
+Address: Shop No. 12, Main Bazaar, Surat, Gujarat - 395001

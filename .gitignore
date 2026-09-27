@@ -1,0 +1,15 @@
+venv/
+__pycache__/
+*.pyc
+.env
+.DS_Store
+audio_files/
+*.db
+.pytest_cache/
+*.log
+*.egg-info/
+dist/
+build/
+.idea/
+.vscode/settings.json
+node_modules/
