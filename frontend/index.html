@@ -1,422 +1,119 @@
 <!DOCTYPE html>
-<!--
-  frontend/index.html
-  ────────────────────────────────────────────
-  Owner  : Kiran
-  Branch : feature/kiran-frontend
-  Task   : Business console dashboard UI
-
-  Sections to implement:
-    1. Navigation Bar
-       - Logo + title
-       - Toggle stats button
-
-    2. Hero Section
-       - Headline + sub-headline
-       - Feature badges (multilingual, 24/7, AI Powered)
-
-    3. Business Registration Form (left column)
-       - Business name input
-       - Language selector (Gujarati / Hindi / English)
-       - File upload with drag & drop (PDF, TXT, CSV, XLSX)
-       - Submit button with loading state
-       - Error message display
-
-    4. Results Panel (right column)
-       - Generated agent card (business ID, webhook URL, copy buttons)
-       - Registered businesses list (live-updating every 10s)
-       - System stats section (total calls, businesses, backend status)
-
-    5. Footer
-
-  JavaScript functions to implement:
-    - submitForm()       → POST /api/business with FormData
-    - loadBusinesses()   → GET /api/businesses → render list
-    - copyToClipboard()  → write text to clipboard
-    - toggleStats()      → show/hide stats section
-    - updateFileHint()   → show selected filename
-
-  API_BASE = "http://localhost:8000"
-
-  Styling: TailwindCSS CDN + custom keyframe animations
-
-  TODO: Add full HTML/CSS/JS implementation here
-  ────────────────────────────────────────────
--->
-<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI Voice Agent - Business Console</title>
+  <title>VoxAgent — AI Phone Agent for Any Business</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    .fade-in { animation: fadeIn 0.3s ease-in-out; }
-    @keyframes spin-slow {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-    }
-    .spin-slow { animation: spin-slow 2s linear infinite; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-in { animation: fadeIn 0.4s ease-in-out; }
   </style>
 </head>
 <body class="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white min-h-screen">
-  
-  <!-- Navigation Bar -->
+
+  <!-- Nav -->
   <nav class="bg-slate-950 border-b border-slate-700 sticky top-0 z-50">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="flex justify-between items-center h-16">
-        <div class="flex items-center gap-3">
-          <div class="bg-gradient-to-r from-blue-500 to-purple-600 p-2 rounded-lg">
-            <i class="fas fa-headset text-white text-xl"></i>
-          </div>
-          <div>
-            <h1 class="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">Voice Agent</h1>
-            <p class="text-xs text-gray-400">Business Console</p>
-          </div>
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center h-16">
+      <div class="flex items-center gap-3">
+        <div class="bg-gradient-to-r from-blue-500 to-purple-600 p-2 rounded-lg">
+          <i class="fas fa-headset text-white text-xl"></i>
         </div>
-        <button onclick="toggleStats()" class="p-2 hover:bg-slate-800 rounded-lg transition">
-          <i class="fas fa-chart-line"></i>
-        </button>
+        <div>
+          <h1 class="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">VoxAgent</h1>
+          <p class="text-xs text-gray-400 -mt-1">AI Phone Agents</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3" id="nav-auth">
+        <a href="login.html" class="text-gray-300 hover:text-white px-3 py-2 transition">Log in</a>
+        <a href="login.html?mode=signup" class="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 px-4 py-2 rounded-lg font-semibold transition">Get Started Free</a>
       </div>
     </div>
   </nav>
 
-  <!-- Main Container -->
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-    
-    <!-- Hero Section -->
-    <div class="mb-12">
-      <div class="bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl p-8 text-center">
-        <h2 class="text-4xl font-bold mb-4">Create Your AI Voice Agent</h2>
-        <p class="text-lg text-blue-100 mb-6">Transform your business with intelligent multilingual customer support</p>
-        <div class="flex gap-4 justify-center flex-wrap">
-          <span class="bg-blue-500 bg-opacity-30 px-4 py-2 rounded-full text-sm">
-            <i class="fas fa-globe mr-2"></i>Hindi, Gujarati, English
-          </span>
-          <span class="bg-blue-500 bg-opacity-30 px-4 py-2 rounded-full text-sm">
-            <i class="fas fa-phone mr-2"></i>24/7 Available
-          </span>
-          <span class="bg-blue-500 bg-opacity-30 px-4 py-2 rounded-full text-sm">
-            <i class="fas fa-bolt mr-2"></i>AI Powered
-          </span>
-        </div>
+  <!-- Hero -->
+  <section class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-16 text-center fade-in">
+    <h2 class="text-5xl md:text-6xl font-extrabold mb-6 leading-tight">
+      Give your business a
+      <span class="bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">24/7 phone agent</span>
+    </h2>
+    <p class="text-xl text-gray-300 max-w-3xl mx-auto mb-8">
+      Upload one document about your business. Get an AI phone agent that answers customer calls,
+      in Hindi, Gujarati or English — no code, no call center, no missed customers.
+    </p>
+    <div class="flex gap-4 justify-center flex-wrap">
+      <a href="login.html?mode=signup" class="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 px-8 py-4 rounded-xl font-bold text-lg transition">
+        <i class="fas fa-bolt mr-2"></i>Create your agent — free
+      </a>
+      <a href="#how" class="bg-slate-800 border border-slate-600 hover:border-blue-500 px-8 py-4 rounded-xl font-semibold text-lg transition">
+        See how it works
+      </a>
+    </div>
+    <div class="flex gap-4 justify-center flex-wrap mt-8 text-sm">
+      <span class="bg-blue-500 bg-opacity-20 px-4 py-2 rounded-full"><i class="fas fa-globe mr-2"></i> Hindi · Gujarati · English</span>
+      <span class="bg-purple-500 bg-opacity-20 px-4 py-2 rounded-full"><i class="fas fa-clock mr-2"></i> Answers 24/7</span>
+      <span class="bg-green-500 bg-opacity-20 px-4 py-2 rounded-full"><i class="fas fa-file-upload mr-2"></i> Setup in 2 minutes</span>
+    </div>
+  </section>
+
+  <!-- How it works -->
+  <section id="how" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+    <h3 class="text-3xl font-bold text-center mb-12">Three steps. That's it.</h3>
+    <div class="grid md:grid-cols-3 gap-8">
+      <div class="bg-slate-800 border border-slate-700 rounded-xl p-8 text-center">
+        <div class="text-4xl mb-4">1️⃣</div>
+        <h4 class="font-bold text-lg mb-2">Create your free account</h4>
+        <p class="text-gray-400 text-sm">Sign up with just an email. No credit card, no sales call.</p>
+      </div>
+      <div class="bg-slate-800 border border-slate-700 rounded-xl p-8 text-center">
+        <div class="text-4xl mb-4">2️⃣</div>
+        <h4 class="font-bold text-lg mb-2">Upload one business document</h4>
+        <p class="text-gray-400 text-sm">Prices, hours, services, policies — PDF, TXT, Excel or CSV. The AI learns everything in it.</p>
+      </div>
+      <div class="bg-slate-800 border border-slate-700 rounded-xl p-8 text-center">
+        <div class="text-4xl mb-4">3️⃣</div>
+        <h4 class="font-bold text-lg mb-2">Connect your phone number</h4>
+        <p class="text-gray-400 text-sm">Paste the webhook URL into your Vonage number. Customers call — your agent answers, every time.</p>
       </div>
     </div>
+  </section>
 
-    <!-- Main Content Grid -->
-    <div class="grid lg:grid-cols-3 gap-8">
-      
-      <!-- Left Column: Registration Form -->
-      <div class="lg:col-span-1">
-        <div class="bg-slate-800 rounded-xl border border-slate-700 p-8">
-          <h3 class="text-xl font-bold mb-6 flex items-center gap-2">
-            <span class="text-2xl">📝</span> Register Business
-          </h3>
-
-          <!-- Business Name Input -->
-          <div class="mb-5">
-            <label class="block text-sm font-medium text-gray-300 mb-2">Business Name <span class="text-red-500">*</span></label>
-            <input 
-              type="text" 
-              id="bname" 
-              placeholder="e.g. Shree Umiya Kirana Store"
-              class="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
-            >
-          </div>
-
-          <!-- Language Selection -->
-          <div class="mb-5">
-            <label class="block text-sm font-medium text-gray-300 mb-2">Primary Language <span class="text-red-500">*</span></label>
-            <select id="blang" class="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition">
-              <option value="gu">🇮🇳 Gujarati</option>
-              <option value="hi">🇮🇳 Hindi</option>
-              <option value="en">🇬🇧 English</option>
-            </select>
-          </div>
-
-          <!-- File Upload -->
-          <div class="mb-6">
-            <label class="block text-sm font-medium text-gray-300 mb-2">Knowledge Document <span class="text-red-500">*</span></label>
-            <div 
-              id="dropZone" 
-              class="border-2 border-dashed border-slate-600 rounded-lg p-8 text-center cursor-pointer hover:border-blue-500 hover:bg-slate-700 transition"
-            >
-              <div class="text-4xl mb-3">📄</div>
-              <p class="text-sm font-medium text-gray-300">Click to upload or drag & drop</p>
-              <p class="text-xs text-gray-500 mt-2">PDF, TXT, CSV, or XLSX files</p>
-            </div>
-            <input type="file" id="fileInput" accept=".pdf,.txt,.csv,.xlsx,.xls" class="hidden">
-            <div id="fileHint" class="text-xs text-gray-400 mt-2"></div>
-          </div>
-
-          <!-- Submit Button -->
-          <button 
-            id="submitBtn"
-            onclick="submitForm()"
-            class="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold py-3 px-4 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-          >
-            <span id="btnText">Generate Voice Agent</span>
-            <i class="fas fa-arrow-right"></i>
-          </button>
-
-          <!-- Error Message -->
-          <div id="errorMsg" class="text-red-400 text-sm mt-4 p-3 bg-red-950 rounded-lg hidden"></div>
-        </div>
-      </div>
-
-      <!-- Right Column: Results & Dashboard -->
-      <div class="lg:col-span-2 space-y-8">
-        
-        <!-- Generated Agent Result -->
-        <div id="result-wrap" class="hidden">
-          <div class="bg-slate-800 rounded-xl border border-slate-700 p-8">
-            <h3 class="text-xl font-bold mb-6 flex items-center gap-2">
-              <span class="text-green-400">✓</span> Agent Ready!
-            </h3>
-            
-            <div class="bg-gradient-to-br from-green-900 to-green-950 rounded-lg p-6 border border-green-700">
-              <div class="grid md:grid-cols-2 gap-4 mb-6">
-                <div class="bg-slate-700 bg-opacity-50 p-4 rounded-lg">
-                  <p class="text-gray-400 text-xs font-medium mb-1">BUSINESS NAME</p>
-                  <p id="r-name" class="font-bold text-lg"></p>
-                </div>
-                <div class="bg-slate-700 bg-opacity-50 p-4 rounded-lg">
-                  <p class="text-gray-400 text-xs font-medium mb-1">LANGUAGE</p>
-                  <p id="r-lang" class="font-bold text-lg"></p>
-                </div>
-              </div>
-
-              <div class="bg-slate-700 bg-opacity-50 p-4 rounded-lg mb-4">
-                <p class="text-gray-400 text-xs font-medium mb-2">BUSINESS ID</p>
-                <div class="flex items-center gap-2">
-                  <code id="r-id" class="font-mono text-sm flex-1 break-all"></code>
-                  <button onclick="copyToClipboard('r-id')" class="p-2 hover:bg-slate-600 rounded transition" title="Copy">
-                    <i class="fas fa-copy"></i>
-                  </button>
-                </div>
-              </div>
-
-              <div class="bg-slate-700 bg-opacity-50 p-4 rounded-lg">
-                <p class="text-gray-400 text-xs font-medium mb-2">TWILIO WEBHOOK URL</p>
-                <div class="flex items-center gap-2">
-                  <code id="r-webhook" class="font-mono text-xs flex-1 break-all"></code>
-                  <button onclick="copyToClipboard('r-webhook')" class="p-2 hover:bg-slate-600 rounded transition" title="Copy">
-                    <i class="fas fa-copy"></i>
-                  </button>
-                </div>
-                <p class="text-xs text-yellow-400 mt-3 bg-yellow-950 p-2 rounded">
-                  ⚠️ Paste this URL into your Twilio number's Voice webhook configuration
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Businesses List -->
-        <div class="bg-slate-800 rounded-xl border border-slate-700 p-8">
-          <h3 class="text-xl font-bold mb-6 flex items-center gap-2">
-            <span class="text-2xl">📊</span> 
-            Registered Businesses 
-            <span id="business-count" class="ml-auto bg-slate-700 px-3 py-1 rounded-full text-sm">0</span>
-          </h3>
-
-          <div id="businesses-list" class="space-y-3">
-            <p class="text-gray-400 text-center py-8">No businesses registered yet. Create one above!</p>
-          </div>
-        </div>
-
-        <!-- System Stats -->
-        <div id="stats-section" class="hidden">
-          <div class="grid md:grid-cols-3 gap-4">
-            <div class="bg-slate-800 rounded-xl border border-slate-700 p-6">
-              <p class="text-gray-400 text-sm mb-2">Total Calls</p>
-              <p class="text-3xl font-bold" id="total-calls">0</p>
-            </div>
-            <div class="bg-slate-800 rounded-xl border border-slate-700 p-6">
-              <p class="text-gray-400 text-sm mb-2">Languages Supported</p>
-              <p class="text-3xl font-bold" id="total-languages">3</p>
-            </div>
-            <div class="bg-slate-800 rounded-xl border border-slate-700 p-6">
-              <p class="text-gray-400 text-sm mb-2">Backend Status</p>
-              <p class="text-lg font-bold text-green-400" id="backend-status">
-                <i class="fas fa-circle text-green-500 mr-2"></i>Running
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
+  <!-- Industries -->
+  <section class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+    <h3 class="text-3xl font-bold text-center mb-4">Built for any business that takes calls</h3>
+    <p class="text-gray-400 text-center mb-12">From a single storefront to a car showroom to a finance firm.</p>
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 text-center hover:border-blue-500 transition"><div class="text-3xl mb-2">🏪</div><p class="text-sm font-semibold">Retail & Stores</p></div>
+      <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 text-center hover:border-blue-500 transition"><div class="text-3xl mb-2">🚗</div><p class="text-sm font-semibold">Car Showrooms</p></div>
+      <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 text-center hover:border-blue-500 transition"><div class="text-3xl mb-2">💼</div><p class="text-sm font-semibold">Finance Firms</p></div>
+      <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 text-center hover:border-blue-500 transition"><div class="text-3xl mb-2">📣</div><p class="text-sm font-semibold">Agencies</p></div>
+      <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 text-center hover:border-blue-500 transition"><div class="text-3xl mb-2">🏥</div><p class="text-sm font-semibold">Clinics</p></div>
+      <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 text-center hover:border-blue-500 transition"><div class="text-3xl mb-2">🏠</div><p class="text-sm font-semibold">Real Estate</p></div>
     </div>
-  </div>
+  </section>
 
-  <!-- Footer -->
-  <footer class="border-t border-slate-700 mt-16 py-8 text-center text-gray-400">
-    <p>AI Voice Agent for Business | Built for Hackathon 🚀</p>
+  <!-- CTA -->
+  <section class="max-w-4xl mx-auto px-4 py-20 text-center">
+    <div class="bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl p-12">
+      <h3 class="text-3xl font-bold mb-4">Your next customer is calling right now.</h3>
+      <p class="text-blue-100 mb-8">Be there for every call — even at 2 AM.</p>
+      <a href="login.html?mode=signup" class="bg-white text-blue-700 font-bold px-8 py-4 rounded-xl text-lg hover:bg-blue-50 transition inline-block">
+        Get started free <i class="fas fa-arrow-right ml-2"></i>
+      </a>
+    </div>
+  </section>
+
+  <footer class="border-t border-slate-700 py-8 text-center text-gray-400">
+    <p>VoxAgent — AI Voice Agents for Business 🚀</p>
   </footer>
 
   <script>
-    const API_BASE = "http://localhost:8000";
-    
-    // FILE UPLOAD HANDLING
-    const dropZone = document.getElementById('dropZone');
-    const fileInput = document.getElementById('fileInput');
-    const fileHint = document.getElementById('fileHint');
-    const errorMsg = document.getElementById('errorMsg');
-
-    dropZone.addEventListener('click', () => fileInput.click());
-    
-    dropZone.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      dropZone.classList.add('border-blue-500', 'bg-slate-700');
-    });
-
-    dropZone.addEventListener('dragleave', () => {
-      dropZone.classList.remove('border-blue-500', 'bg-slate-700');
-    });
-
-    dropZone.addEventListener('drop', (e) => {
-      e.preventDefault();
-      dropZone.classList.remove('border-blue-500', 'bg-slate-700');
-      if (e.dataTransfer.files.length) {
-        fileInput.files = e.dataTransfer.files;
-        updateFileHint();
-      }
-    });
-
-    fileInput.addEventListener('change', updateFileHint);
-
-    function updateFileHint() {
-      if (fileInput.files.length) {
-        const file = fileInput.files[0];
-        fileHint.textContent = `✓ ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
-        fileHint.classList.add('text-green-400');
-      }
+    // If already logged in, offer dashboard shortcut
+    if (localStorage.getItem('voxagent_token')) {
+      document.getElementById('nav-auth').innerHTML =
+        '<a href="dashboard.html" class="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 px-4 py-2 rounded-lg font-semibold transition">Open Dashboard <i class="fas fa-arrow-right ml-1"></i></a>';
     }
-
-    // FORM SUBMISSION
-    async function submitForm() {
-      errorMsg.classList.add('hidden');
-      const name = document.getElementById('bname').value.trim();
-      const language = document.getElementById('blang').value;
-      const file = fileInput.files[0];
-
-      if (!name) {
-        showError('Enter a business name.');
-        return;
-      }
-      if (!file) {
-        showError('Choose a knowledge document.');
-        return;
-      }
-
-      const btn = document.getElementById('submitBtn');
-      const btnText = document.getElementById('btnText');
-      btn.disabled = true;
-      btnText.innerHTML = '<i class="fas fa-spinner spin-slow"></i> Creating...';
-
-      const formData = new FormData();
-      formData.append('name', name);
-      formData.append('language', language);
-      formData.append('file', file);
-
-      try {
-        const res = await fetch(`${API_BASE}/api/business`, {
-          method: 'POST',
-          body: formData
-        });
-
-        if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.detail || 'Something went wrong.');
-        }
-
-        const data = await res.json();
-
-        document.getElementById('r-name').textContent = data.name;
-        document.getElementById('r-id').textContent = data.business_id;
-        document.getElementById('r-lang').textContent = data.language;
-        document.getElementById('r-webhook').textContent = data.voice_webhook_url;
-        document.getElementById('result-wrap').classList.remove('hidden');
-
-        await loadBusinesses();
-
-        document.getElementById('bname').value = '';
-        fileInput.value = '';
-        fileHint.textContent = '';
-
-      } catch (e) {
-        showError(e.message);
-      } finally {
-        btn.disabled = false;
-        btnText.textContent = 'Generate Voice Agent';
-      }
-    }
-
-    function showError(msg) {
-      errorMsg.textContent = msg;
-      errorMsg.classList.remove('hidden');
-    }
-
-    // LOAD BUSINESSES
-    async function loadBusinesses() {
-      try {
-        const res = await fetch(`${API_BASE}/api/businesses`);
-        if (!res.ok) throw new Error('Failed to load');
-        
-        const data = await res.json();
-        const list = document.getElementById('businesses-list');
-        const count = document.getElementById('business-count');
-
-        count.textContent = data.total;
-
-        if (data.total === 0) {
-          list.innerHTML = '<p class="text-gray-400 text-center py-8">No businesses registered yet.</p>';
-          return;
-        }
-
-        list.innerHTML = data.businesses.map(b => `
-          <div class="bg-slate-700 border border-slate-600 rounded-lg p-4 hover:border-blue-500 transition">
-            <div class="flex justify-between items-start mb-2">
-              <div>
-                <h4 class="font-bold text-white">${b.name}</h4>
-                <p class="text-xs text-gray-400">ID: ${b.id}</p>
-              </div>
-              <span class="bg-blue-600 text-white text-xs px-2 py-1 rounded">${getLanguageName(b.language)}</span>
-            </div>
-            <div class="grid grid-cols-2 gap-2 text-xs text-gray-400">
-              <p>📞 Calls: ${b.total_calls}</p>
-              <p>📅 ${new Date(b.created_at).toLocaleDateString()}</p>
-            </div>
-          </div>
-        `).join('');
-      } catch (e) {
-        console.error('Error:', e);
-      }
-    }
-
-    function getLanguageName(code) {
-      const map = { 'gu': 'Gujarati', 'hi': 'Hindi', 'en': 'English' };
-      return map[code] || code;
-    }
-
-    function copyToClipboard(elementId) {
-      const element = document.getElementById(elementId);
-      const text = element.textContent;
-      navigator.clipboard.writeText(text);
-      alert('Copied!');
-    }
-
-    function toggleStats() {
-      document.getElementById('stats-section').classList.toggle('hidden');
-    }
-
-    // INITIAL LOAD
-    loadBusinesses();
-    setInterval(loadBusinesses, 10000);
   </script>
 </body>
 </html>

@@ -15,10 +15,12 @@ An AI voice agent that provides **24/7 multilingual customer support** through V
 | Feature | Description |
 |---|---|
 | 🌍 Multilingual | Hindi, Gujarati, English support |
-| 🤖 AI Responses | Claude API (Anthropic) |
+| 🤖 AI Responses | Groq API (GPT-OSS 120B) — free tier |
 | 📞 Voice Calls | Vonage telephony integration |
-| 🗣️ Speech-to-Text | OpenAI Whisper |
-| 🔊 Text-to-Speech | Fish Audio TTS |
+| 🗣️ Speech-to-Text | Groq-hosted Whisper — free tier |
+| 🔊 Text-to-Speech | Microsoft Edge TTS — free, no API key |
+| 👤 Accounts | Email signup/login, owner-scoped agents, bearer-token auth |
+| 🏢 Any business | Retail, car showrooms, finance firms, agencies, clinics, real estate |
 | 💾 Persistence | SQLite database |
 | 🐳 Containerized | Docker-ready |
 
@@ -27,31 +29,31 @@ An AI voice agent that provides **24/7 multilingual customer support** through V
 ## 🏗️ Project Structure
 
 ```
-ai-voice-agent-hackathon/
+svnit-ils-voice-agent/
 │
 ├── backend/                    # FastAPI backend
-│   ├── main.py                 # [Poojan]  → API endpoints & Vonage webhooks
-│   ├── models.py               # [Hardik]  → SQLAlchemy ORM models
-│   ├── database.py             # [Hardik]  → DB session & CRUD helpers
-│   ├── init_db.py              # [Hardik]  → DB initialization script
-│   ├── doc_processor.py        # [Henali]  → PDF/TXT/Excel text extraction
-│   ├── llm_service.py          # [Henali]  → Claude AI response generation
-│   ├── voice_service.py        # [Henali]  → Whisper STT + Fish Audio TTS
-│   └── test_api.py             # [Suhas]   → Pytest unit tests
+│   ├── main.py                 # API endpoints, auth, Vonage webhooks, serves frontend
+│   ├── auth.py                 # Signup/login, PBKDF2 hashing, bearer tokens
+│   ├── models.py               # SQLAlchemy models (User, Business, Call, …)
+│   ├── database.py             # DB session & owner-scoped CRUD helpers
+│   ├── init_db.py              # DB initialization script
+│   ├── doc_processor.py        # PDF/TXT/Excel text extraction
+│   ├── llm_service.py          # Groq LLM response generation
+│   ├── voice_service.py        # Groq Whisper STT + Edge TTS
+│   └── test_api.py             # Pytest suite (auth, CRUD, webhooks)
 │
-├── frontend/
-│   └── index.html              # [Kiran]   → Business console dashboard
+├── frontend/                   # Served by FastAPI at http://localhost:8000/
+│   ├── index.html              # Public home page
+│   ├── login.html              # Login + Signup
+│   ├── dashboard.html          # Auth-gated agent console
+│   └── sample_bmw_showroom.txt # One-click sample doc for the console
 │
-├── sample-data/                # Sample knowledge documents for testing
-│   ├── sample_kirana_store.txt
-│   └── README.md
-│
-├── tests/                      # Integration & E2E tests
-│   └── README.md
+├── sample-data/                # Sample knowledge documents
+│   ├── sample_bmw_showroom.txt #   BMW dealership (models, finance, service)
+│   └── sample_kirana_store.txt #   Small retail store
 │
 ├── .env.example                # Environment variable template
-├── .gitignore
-├── Dockerfile                  # [Suhas]   → Docker containerization
+├── Dockerfile
 ├── requirements.txt
 └── README.md
 ```
@@ -64,7 +66,7 @@ ai-voice-agent-hackathon/
 |---|---|---|
 | **Poojan** | `feature/poojan-backend` | FastAPI app, API endpoints, Vonage webhooks |
 | **Hardik** | `feature/hardik-database` | SQLAlchemy models, database helpers, init script |
-| **Henali** | `feature/henali-voice-services` | Document processor, Claude LLM, Fish Audio TTS |
+| **Henali** | `feature/henali-voice-services` | Document processor, Groq LLM, Edge TTS |
 | **Kiran** | `feature/kiran-frontend` | HTML/CSS/JS dashboard |
 | **Suhas** | `feature/suhas-devops` | Tests, Docker, ngrok, deployment |
 
@@ -112,12 +114,14 @@ Open `frontend/index.html` in your browser (or use Live Server).
 
 ## 🔑 Required API Keys
 
-| Service | Get Key From |
-|---|---|
-| Anthropic Claude | https://console.anthropic.com |
-| OpenAI Whisper | https://platform.openai.com |
-| Vonage | https://dashboard.nexmo.com |
-| Fish Audio TTS | https://fish.audio/app/api-keys |
+| Service | Get Key From | Cost |
+|---|---|---|
+| Groq (LLM + Whisper STT) | https://console.groq.com/keys | Free tier |
+| Microsoft Edge TTS | No key needed (edge-tts) | Free |
+| Vonage | https://dashboard.nexmo.com | Free trial credits |
+
+Also set `SECRET_KEY` in `.env` (any long random string) — it signs login tokens.
+Generate one: `python -c "import secrets; print(secrets.token_hex(32))"`
 
 ---
 
@@ -141,15 +145,21 @@ docker run -p 8000:8000 --env-file .env ai-voice-agent:latest
 
 ## 📞 API Endpoints
 
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/` | Health check |
-| POST | `/api/business` | Register business + upload doc |
-| GET | `/api/business/{id}` | Get business details |
-| GET | `/api/businesses` | List all businesses |
-| GET | `/api/analytics/overview` | System analytics |
-| POST | `/voice/answer/{id}` | Vonage incoming call webhook |
-| POST | `/voice/event/{id}` | Vonage speech result webhook |
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| GET | `/` | — | Home page |
+| GET | `/api/health` | — | Health check |
+| POST | `/api/auth/signup` | — | Create account → token |
+| POST | `/api/auth/login` | — | Log in → token |
+| GET | `/api/auth/me` | Bearer | Who am I |
+| POST | `/api/business` | Bearer | Create agent + upload doc |
+| GET | `/api/business/{id}` | Bearer | Agent details (owner only) |
+| GET | `/api/businesses` | Bearer | Your agents |
+| GET | `/api/analytics/overview` | Bearer | Your analytics |
+| POST | `/voice/answer/{id}` | — | Vonage incoming call webhook |
+| POST | `/voice/event/{id}` | — | Vonage speech result webhook |
+
+Voice webhooks stay unauthenticated by design — Vonage calls them from its own network.
 
 ---
 

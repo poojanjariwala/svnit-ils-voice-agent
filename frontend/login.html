@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VoxAgent — Log in or Sign up</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-in { animation: fadeIn 0.4s ease-in-out; }
+    .tab-active { background: linear-gradient(to right, rgb(37 99 235), rgb(147 51 234)); }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white min-h-screen">
+
+  <!-- Nav -->
+  <nav class="bg-slate-950 border-b border-slate-700 sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center h-16">
+      <a href="index.html" class="flex items-center gap-3">
+        <div class="bg-gradient-to-r from-blue-500 to-purple-600 p-2 rounded-lg">
+          <i class="fas fa-headset text-white text-xl"></i>
+        </div>
+        <h1 class="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">VoxAgent</h1>
+      </a>
+      <a href="index.html" class="text-gray-300 hover:text-white transition"><i class="fas fa-arrow-left mr-2"></i>Home</a>
+    </div>
+  </nav>
+
+  <!-- Auth card -->
+  <div class="max-w-md mx-auto px-4 py-16 fade-in">
+    <!-- Tabs -->
+    <div class="grid grid-cols-2 gap-2 bg-slate-800 border border-slate-700 rounded-xl p-2 mb-8">
+      <button id="tab-login" onclick="showTab('login')" class="py-3 rounded-lg font-semibold transition">Log in</button>
+      <button id="tab-signup" onclick="showTab('signup')" class="py-3 rounded-lg font-semibold transition">Sign up</button>
+    </div>
+
+    <!-- LOGIN FORM -->
+    <div id="form-login" class="bg-slate-800 border border-slate-700 rounded-xl p-8">
+      <h2 class="text-2xl font-bold mb-6">Welcome back</h2>
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-300 mb-2">Email</label>
+        <input type="email" id="login-email" placeholder="you@company.com"
+          class="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 transition">
+      </div>
+      <div class="mb-6">
+        <label class="block text-sm font-medium text-gray-300 mb-2">Password</label>
+        <input type="password" id="login-password" placeholder="••••••••"
+          class="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 transition">
+      </div>
+      <button onclick="doLogin()" class="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 font-bold py-3 rounded-lg transition">
+        Log in <i class="fas fa-arrow-right ml-1"></i>
+      </button>
+    </div>
+
+    <!-- SIGNUP FORM -->
+    <div id="form-signup" class="bg-slate-800 border border-slate-700 rounded-xl p-8 hidden">
+      <h2 class="text-2xl font-bold mb-6">Create your free account</h2>
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-300 mb-2">Full name</label>
+        <input type="text" id="signup-name" placeholder="Your name"
+          class="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 transition">
+      </div>
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-300 mb-2">Email</label>
+        <input type="email" id="signup-email" placeholder="you@company.com"
+          class="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 transition">
+      </div>
+      <div class="mb-6">
+        <label class="block text-sm font-medium text-gray-300 mb-2">Password (min 6 chars)</label>
+        <input type="password" id="signup-password" placeholder="••••••••"
+          class="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 transition">
+      </div>
+      <button onclick="doSignup()" class="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 font-bold py-3 rounded-lg transition">
+        Create account <i class="fas fa-arrow-right ml-1"></i>
+      </button>
+    </div>
+
+    <!-- Message box -->
+    <div id="auth-msg" class="text-red-400 text-sm mt-4 p-3 bg-red-950 rounded-lg hidden"></div>
+  </div>
+
+  <script>
+    const API_BASE = "http://localhost:8000";
+    const params = new URLSearchParams(location.search);
+    showTab(params.get('mode') === 'signup' ? 'signup' : 'login');
+
+    function showTab(which) {
+      const login = which === 'login';
+      document.getElementById('form-login').classList.toggle('hidden', !login);
+      document.getElementById('form-signup').classList.toggle('hidden', login);
+      document.getElementById('tab-login').classList.toggle('tab-active', login);
+      document.getElementById('tab-signup').classList.toggle('tab-active', !login);
+    }
+
+    function showAuthError(msg) {
+      const el = document.getElementById('auth-msg');
+      el.textContent = msg;
+      el.classList.remove('hidden');
+    }
+
+    async function doLogin() {
+      document.getElementById('auth-msg').classList.add('hidden');
+      const email = document.getElementById('login-email').value.trim();
+      const password = document.getElementById('login-password').value;
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Login failed');
+        localStorage.setItem('voxagent_token', data.token);
+        localStorage.setItem('voxagent_user', JSON.stringify(data.user));
+        location.href = 'dashboard.html';
+      } catch (e) { showAuthError(e.message); }
+    }
+
+    async function doSignup() {
+      document.getElementById('auth-msg').classList.add('hidden');
+      const name = document.getElementById('signup-name').value.trim();
+      const email = document.getElementById('signup-email').value.trim();
+      const password = document.getElementById('signup-password').value;
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/signup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, email, password })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Signup failed');
+        localStorage.setItem('voxagent_token', data.token);
+        localStorage.setItem('voxagent_user', JSON.stringify(data.user));
+        location.href = 'dashboard.html';
+      } catch (e) { showAuthError(e.message); }
+    }
+  </script>
+</body>
+</html>
