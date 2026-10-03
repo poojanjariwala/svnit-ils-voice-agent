@@ -23,7 +23,7 @@ import os
 import json
 import uuid
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from fastapi import FastAPI, UploadFile, Form, HTTPException, Depends, Request
 from fastapi.staticfiles import StaticFiles
@@ -489,6 +489,27 @@ def _answer_url_for(business_id: str, provider: str = None) -> str:
     return f"{_public()}/{prefix}/answer/{business_id}"
 
 
+CALL_WINDOW_SECONDS = 900  # no call outlives the tunnel window (see make_call.py)
+
+
+def _close_orphaned_calls(db: Session, rows: list) -> int:
+    """Finalise rows stuck in 'calling'.
+
+    A status callback normally closes a call, but one can be lost (tunnel died,
+    provider never called back). Without this the console shows a dead call from
+    last week as still ringing, and any 'is this call live?' check is a lie.
+    A call older than the window cannot still be up, so close it.
+    """
+    cutoff = datetime.now() - timedelta(seconds=CALL_WINDOW_SECONDS)
+    stale = [c for c in rows if c.status == "calling" and c.called_at and c.called_at < cutoff]
+    for c in stale:
+        c.status = "done"
+        c.detail = "Call ended (no status update received)"
+    if stale:
+        db.commit()
+    return len(stale)
+
+
 def _outbound_dict(oc: OutboundCall) -> dict:
     return {
         "id": oc.id,
@@ -777,6 +798,7 @@ async def list_outbound(
 ):
     """All outbound calls for your agents, newest first"""
     rows = get_outbound_for_owner(db, user.id)
+    _close_orphaned_calls(db, rows)
     return {"total": len(rows), "calls": [_outbound_dict(c) for c in rows]}
 
 # ----------------------------------------------------------------------------

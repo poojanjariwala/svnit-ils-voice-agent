@@ -3,82 +3,96 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>VoxAgent — Log in or Sign up</title>
+  <meta name="theme-color" content="#F6F7F4">
+  <title>VoxAgent — Log in or sign up</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { theme: { extend: {
+      colors: { paper: '#F6F7F4', raised: '#FFFFFF', ink: '#141A22', soft: '#5A6472', rule: '#D8DCE2', marigold: '#E8A020' },
+      fontFamily: {
+        sans: ['Instrument Sans', 'Noto Sans Devanagari', 'Noto Sans Gujarati', 'system-ui', 'sans-serif'],
+        display: ['Bricolage Grotesque', 'Instrument Sans', 'Noto Sans Devanagari', 'sans-serif'],
+      },
+    }}};
+  </script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Instrument+Sans:wght@400;500;600&family=Noto+Sans+Devanagari:wght@400;600&family=Noto+Sans+Gujarati:wght@400;600&display=swap" rel="stylesheet">
   <style>
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-    .fade-in { animation: fadeIn 0.4s ease-in-out; }
-    .tab-active { background: linear-gradient(to right, rgb(37 99 235), rgb(147 51 234)); }
+    :root { color-scheme: light; }
+    body { background: #F6F7F4; color: #141A22; touch-action: manipulation; -webkit-tap-highlight-color: rgba(232,160,32,.18); }
+    .skip-link { position: absolute; left: -9999px; top: 0; z-index: 50; background: #141A22; color: #fff; padding: 10px 16px; border-radius: 0 0 8px 0; font-size: 14px; }
+    .skip-link:focus { left: 0; }
+    :focus-visible { outline: 2px solid #E8A020; outline-offset: 2px; border-radius: 4px; }
+    .btn-ink { background: #141A22; color: #fff; transition: background-color .15s ease; }
+    .btn-ink:hover { background: #2A3442; }
+    .tab-btn { color: #5A6472; border-bottom: 2px solid transparent; transition: color .15s ease, border-color .15s ease; }
+    .tab-btn[aria-selected="true"] { color: #141A22; border-bottom-color: #E8A020; }
+    .pad-row { border-bottom: 1px solid #D8DCE2; padding: 14px 0; }
+    .pad-row:last-of-type { border-bottom: 0; }
+    .pad-label { display: block; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: #5A6472; margin-bottom: 2px; }
+    .pad-input { width: 100%; background: transparent; border: 0; border-bottom: 1px solid #D8DCE2; padding: 4px 2px; font: inherit; font-size: 17px; color: #141A22; }
+    .pad-input::placeholder { color: #9AA3AE; }
+    .pad-input:focus { outline: none; background: #FFFFFF; }
+    .pad-input:focus-visible { outline: none; box-shadow: 0 2px 0 0 #E8A020; }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+    }
   </style>
 </head>
-<body class="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white min-h-screen">
+<body class="min-h-screen font-sans antialiased">
+  <a href="#main" class="skip-link">Skip to main content</a>
 
-  <!-- Nav -->
-  <nav class="bg-slate-950 border-b border-slate-700 sticky top-0 z-50">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center h-16">
-      <a href="index.html" class="flex items-center gap-3">
-        <div class="bg-gradient-to-r from-blue-500 to-purple-600 p-2 rounded-lg">
-          <i class="fas fa-headset text-white text-xl"></i>
+  <header class="border-b border-rule bg-raised">
+    <div class="max-w-md mx-auto px-5 h-16 flex items-center justify-between">
+      <a href="index.html" class="font-display text-[19px] font-bold tracking-tight">VoxAgent</a>
+      <a href="index.html" class="text-sm text-soft hover:text-ink transition-colors">Home</a>
+    </div>
+  </header>
+
+  <main id="main" class="max-w-md mx-auto px-5 py-12">
+    <div role="tablist" aria-label="Log in or sign up" class="flex gap-6 border-b border-rule mb-8">
+      <button role="tab" id="tab-login" onclick="showTab('login')" aria-selected="true" aria-controls="form-login" class="tab-btn py-2.5 text-sm font-medium">Log in</button>
+      <button role="tab" id="tab-signup" onclick="showTab('signup')" aria-selected="false" aria-controls="form-signup" class="tab-btn py-2.5 text-sm font-medium">Sign up</button>
+    </div>
+
+    <form id="form-login" role="tabpanel" aria-labelledby="tab-login" onsubmit="doLogin(); return false">
+      <h1 class="font-display text-2xl font-bold mb-6">Welcome back</h1>
+      <div class="bg-raised border border-rule rounded-lg px-6 py-1">
+        <div class="pad-row">
+          <label class="pad-label" for="login-email">Email</label>
+          <input type="email" id="login-email" name="email" autocomplete="email" spellcheck="false" placeholder="you@company.com" class="pad-input">
         </div>
-        <h1 class="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">VoxAgent</h1>
-      </a>
-      <a href="index.html" class="text-gray-300 hover:text-white transition"><i class="fas fa-arrow-left mr-2"></i>Home</a>
-    </div>
-  </nav>
+        <div class="pad-row">
+          <label class="pad-label" for="login-password">Password</label>
+          <input type="password" id="login-password" name="password" autocomplete="current-password" placeholder="••••••••" class="pad-input">
+        </div>
+      </div>
+      <button type="submit" class="btn-ink w-full font-medium py-3 rounded-lg mt-6">Log in</button>
+    </form>
 
-  <!-- Auth card -->
-  <div class="max-w-md mx-auto px-4 py-16 fade-in">
-    <!-- Tabs -->
-    <div class="grid grid-cols-2 gap-2 bg-slate-800 border border-slate-700 rounded-xl p-2 mb-8">
-      <button id="tab-login" onclick="showTab('login')" class="py-3 rounded-lg font-semibold transition">Log in</button>
-      <button id="tab-signup" onclick="showTab('signup')" class="py-3 rounded-lg font-semibold transition">Sign up</button>
-    </div>
+    <form id="form-signup" role="tabpanel" aria-labelledby="tab-signup" onsubmit="doSignup(); return false" class="hidden">
+      <h1 class="font-display text-2xl font-bold mb-6">Create your free account</h1>
+      <div class="bg-raised border border-rule rounded-lg px-6 py-1">
+        <div class="pad-row">
+          <label class="pad-label" for="signup-name">Your name</label>
+          <input type="text" id="signup-name" name="name" autocomplete="name" placeholder="Poojan Jariwala" class="pad-input">
+        </div>
+        <div class="pad-row">
+          <label class="pad-label" for="signup-email">Email</label>
+          <input type="email" id="signup-email" name="email" autocomplete="email" spellcheck="false" placeholder="you@company.com" class="pad-input">
+        </div>
+        <div class="pad-row">
+          <label class="pad-label" for="signup-password">Password</label>
+          <input type="password" id="signup-password" name="password" autocomplete="new-password" placeholder="At least 6 characters" class="pad-input">
+        </div>
+      </div>
+      <button type="submit" class="btn-ink w-full font-medium py-3 rounded-lg mt-6">Create account</button>
+    </form>
 
-    <!-- LOGIN FORM -->
-    <div id="form-login" class="bg-slate-800 border border-slate-700 rounded-xl p-8">
-      <h2 class="text-2xl font-bold mb-6">Welcome back</h2>
-      <div class="mb-4">
-        <label class="block text-sm font-medium text-gray-300 mb-2">Email</label>
-        <input type="email" id="login-email" placeholder="you@company.com"
-          class="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 transition">
-      </div>
-      <div class="mb-6">
-        <label class="block text-sm font-medium text-gray-300 mb-2">Password</label>
-        <input type="password" id="login-password" placeholder="••••••••"
-          class="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 transition">
-      </div>
-      <button onclick="doLogin()" class="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 font-bold py-3 rounded-lg transition">
-        Log in <i class="fas fa-arrow-right ml-1"></i>
-      </button>
-    </div>
-
-    <!-- SIGNUP FORM -->
-    <div id="form-signup" class="bg-slate-800 border border-slate-700 rounded-xl p-8 hidden">
-      <h2 class="text-2xl font-bold mb-6">Create your free account</h2>
-      <div class="mb-4">
-        <label class="block text-sm font-medium text-gray-300 mb-2">Full name</label>
-        <input type="text" id="signup-name" placeholder="Your name"
-          class="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 transition">
-      </div>
-      <div class="mb-4">
-        <label class="block text-sm font-medium text-gray-300 mb-2">Email</label>
-        <input type="email" id="signup-email" placeholder="you@company.com"
-          class="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 transition">
-      </div>
-      <div class="mb-6">
-        <label class="block text-sm font-medium text-gray-300 mb-2">Password (min 6 chars)</label>
-        <input type="password" id="signup-password" placeholder="••••••••"
-          class="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 transition">
-      </div>
-      <button onclick="doSignup()" class="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 font-bold py-3 rounded-lg transition">
-        Create account <i class="fas fa-arrow-right ml-1"></i>
-      </button>
-    </div>
-
-    <!-- Message box -->
-    <div id="auth-msg" class="text-red-400 text-sm mt-4 p-3 bg-red-950 rounded-lg hidden"></div>
-  </div>
+    <div id="auth-msg" role="alert" class="hidden text-sm text-rust border border-rust rounded-lg px-4 py-3 mt-4 bg-raised"></div>
+  </main>
 
   <script>
     const API_BASE = "http://localhost:8000";
@@ -89,8 +103,8 @@
       const login = which === 'login';
       document.getElementById('form-login').classList.toggle('hidden', !login);
       document.getElementById('form-signup').classList.toggle('hidden', login);
-      document.getElementById('tab-login').classList.toggle('tab-active', login);
-      document.getElementById('tab-signup').classList.toggle('tab-active', !login);
+      document.getElementById('tab-login').setAttribute('aria-selected', String(login));
+      document.getElementById('tab-signup').setAttribute('aria-selected', String(!login));
     }
 
     function showAuthError(msg) {
@@ -99,18 +113,19 @@
       el.classList.remove('hidden');
     }
 
+    function hideAuthError() { document.getElementById('auth-msg').classList.add('hidden'); }
+
     async function doLogin() {
-      document.getElementById('auth-msg').classList.add('hidden');
+      hideAuthError();
       const email = document.getElementById('login-email').value.trim();
       const password = document.getElementById('login-password').value;
       try {
         const res = await fetch(`${API_BASE}/api/auth/login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, password })
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || 'Login failed');
+        if (!res.ok) throw new Error(data.detail || 'Login failed — check your email and password.');
         localStorage.setItem('voxagent_token', data.token);
         localStorage.setItem('voxagent_user', JSON.stringify(data.user));
         location.href = 'dashboard.html';
@@ -118,18 +133,17 @@
     }
 
     async function doSignup() {
-      document.getElementById('auth-msg').classList.add('hidden');
+      hideAuthError();
       const name = document.getElementById('signup-name').value.trim();
       const email = document.getElementById('signup-email').value.trim();
       const password = document.getElementById('signup-password').value;
       try {
         const res = await fetch(`${API_BASE}/api/auth/signup`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, email, password })
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || 'Signup failed');
+        if (!res.ok) throw new Error(data.detail || 'Sign up failed — try a different email.');
         localStorage.setItem('voxagent_token', data.token);
         localStorage.setItem('voxagent_user', JSON.stringify(data.user));
         location.href = 'dashboard.html';

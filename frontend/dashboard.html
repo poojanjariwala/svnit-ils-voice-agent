@@ -3,301 +3,347 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#F6F7F4">
   <title>VoxAgent — Business Console</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: {
+        colors: {
+          paper: '#F6F7F4', raised: '#FFFFFF', ink: '#141A22', soft: '#5A6472',
+          rule: '#D8DCE2', marigold: '#E8A020', ledger: '#1F6F4A', rust: '#B23A2E',
+        },
+        fontFamily: {
+          sans: ['Instrument Sans', 'Noto Sans Devanagari', 'Noto Sans Gujarati', 'system-ui', 'sans-serif'],
+          display: ['Bricolage Grotesque', 'Instrument Sans', 'Noto Sans Devanagari', 'sans-serif'],
+        },
+      }},
+    };
+  </script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Instrument+Sans:wght@400;500;600&family=Noto+Sans+Devanagari:wght@400;600&family=Noto+Sans+Gujarati:wght@400;600&display=swap" rel="stylesheet">
   <style>
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-    .fade-in { animation: fadeIn 0.3s ease-in-out; }
-    @keyframes spin-slow { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-    .spin-slow { animation: spin-slow 2s linear infinite; }
-    .cat-card { transition: all .15s; }
-    .cat-card.selected { border-color: #3b82f6; background: rgba(59,130,246,.15); }
+    :root { color-scheme: light; }
+    body { background: #F6F7F4; color: #141A22; touch-action: manipulation; -webkit-tap-highlight-color: rgba(232,160,32,.18); }
+    :focus-visible { outline: 2px solid #E8A020; outline-offset: 2px; border-radius: 4px; }
+    .num { font-variant-numeric: tabular-nums; }
+    .skip-link { position: absolute; left: -9999px; top: 0; z-index: 50; background: #141A22; color: #fff; padding: 10px 16px; border-radius: 0 0 8px 0; font-size: 14px; }
+    .skip-link:focus { left: 0; }
+    .rule-b { border-bottom: 1px solid #D8DCE2; }
+    /* counter pad: one rule-separated row per field */
+    .pad-row { border-bottom: 1px solid #D8DCE2; padding: 14px 0; display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: baseline; }
+    .pad-row:last-of-type { border-bottom: 0; }
+    .pad-label { width: 100%; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: #5A6472; }
+    .pad-input { flex: 1 1 220px; min-width: 0; background: transparent; border: 0; border-bottom: 1px solid #D8DCE2; padding: 4px 2px; font: inherit; font-size: 17px; color: #141A22; border-radius: 0; }
+    .pad-input::placeholder { color: #9AA3AE; }
+    .pad-input:focus { outline: none; background: #FFFFFF; }
+    /* the counter-pad rule thickens under the field you're in — box-shadow so
+       the 2px indicator costs no layout */
+    .pad-input:focus-visible { outline: none; box-shadow: 0 2px 0 0 #E8A020; }
+    /* the one loud element: a call is live */
+    .call-slip { border: 1px solid #D8DCE2; border-left: 3px solid #E8A020; background: #FFFFFF; }
+    .call-slip[data-live="false"] { border-left-color: #D8DCE2; }
+    .live-dot { width: 7px; height: 7px; border-radius: 999px; background: #E8A020; display: inline-block; }
+    .btn-ink { background: #141A22; color: #fff; transition: background-color .15s ease, transform .1s ease; }
+    .btn-ink:hover { background: #2A3442; }
+    .btn-ink:active { transform: translateY(1px); }
+    .btn-ink:disabled { opacity: .45; }
+    .btn-quiet { border: 1px solid #D8DCE2; color: #141A22; background: transparent; transition: border-color .15s ease, background-color .15s ease; }
+    .btn-quiet:hover { border-color: #141A22; background: #FFFFFF; }
+    .nav-rail { color: #5A6472; border-bottom: 2px solid transparent; transition: color .15s ease, border-color .15s ease; }
+    /* the rail scrolls sideways on a phone — keep the scrollbar out of the way */
+    .nav-scroll { overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; }
+    .nav-scroll::-webkit-scrollbar { display: none; }
+    .nav-rail:hover { color: #141A22; }
+    .nav-rail[aria-current="page"] { color: #141A22; border-bottom-color: #E8A020; }
+    .cat-tile { border: 1px solid #D8DCE2; background: #FFFFFF; transition: border-color .15s ease, background-color .15s ease; }
+    .cat-tile:hover { border-color: #141A22; }
+    .cat-tile.selected { border-color: #E8A020; border-width: 2px; }
+    .dropzone { border: 1px dashed #9AA3AE; transition: border-color .15s ease, background-color .15s ease; width: 100%; }
+    .dropzone:hover, .dropzone.dragging { border-color: #E8A020; background: #FFFFFF; }
+    .bubble-you { background: #141A22; color: #fff; }
+    .bubble-meera { background: #FFFFFF; border: 1px solid #D8DCE2; }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+    }
   </style>
 </head>
-<body class="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white min-h-screen">
+<body class="min-h-screen font-sans antialiased">
+  <a href="#main" class="skip-link">Skip to main content</a>
 
-  <nav class="bg-slate-950 border-b border-slate-700 sticky top-0 z-50">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center h-16">
-      <a href="index.html" class="flex items-center gap-3">
-        <div class="bg-gradient-to-r from-blue-500 to-purple-600 p-2 rounded-lg"><i class="fas fa-headset text-white text-xl"></i></div>
-        <div>
-          <h1 class="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">VoxAgent</h1>
-          <p class="text-xs text-gray-400 -mt-1">Business Console</p>
+  <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:m-3 focus:bg-ink focus:text-white focus:px-3 focus:py-2 focus:rounded">Skip to content</a>
+
+  <!-- ── rail: a receipt header, not a navbar ── -->
+  <header class="sticky top-0 z-40 bg-raised border-b border-rule">
+    <div class="max-w-3xl mx-auto px-5 sm:px-8">
+      <div class="flex items-center justify-between h-14">
+        <a href="index.html" class="flex items-baseline gap-2 min-w-0">
+          <span class="font-display text-[19px] font-bold tracking-tight">VoxAgent</span>
+          <span id="business-chip" class="text-xs text-soft truncate hidden sm:inline"></span>
+        </a>
+        <div class="flex items-center gap-1">
+          <span id="user-name" class="text-xs text-soft mr-2 truncate max-w-[10ch] sm:max-w-none"></span>
+          <button onclick="logout()" aria-label="Log out" class="p-2 text-soft hover:text-ink transition-colors">
+            <i class="fas fa-arrow-right-from-bracket" aria-hidden="true"></i>
+          </button>
         </div>
-      </a>
-      <div class="flex items-center gap-2">
-        <button onclick="showView('create')" id="nav-create" class="px-3 py-2 rounded-lg text-sm font-medium bg-slate-800 text-white transition">Create Agent</button>
-        <button onclick="showView('talk')" id="nav-talk" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-400 hover:text-white transition">🎤 Try Agent</button>
-        <button onclick="showView('outbound')" id="nav-outbound" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-400 hover:text-white transition">Call Customers</button>
-        <button onclick="showView('insights')" id="nav-insights" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-400 hover:text-white transition">Call Insights</button>
-        <span id="user-name" class="text-sm text-gray-300 ml-2"></span>
-        <button onclick="logout()" class="text-gray-300 hover:text-white px-3 py-2 transition" title="Log out"><i class="fas fa-sign-out-alt"></i></button>
       </div>
+      <nav aria-label="Sections" class="nav-scroll flex gap-5 -mb-px">
+        <button onclick="showView('create')" id="nav-create" class="nav-rail py-2.5 text-[13px] font-medium whitespace-nowrap">Create agent</button>
+        <button onclick="showView('talk')" id="nav-talk" class="nav-rail py-2.5 text-[13px] font-medium whitespace-nowrap">Talk to agent</button>
+        <button onclick="showView('outbound')" id="nav-outbound" class="nav-rail py-2.5 text-[13px] font-medium whitespace-nowrap">Call customers</button>
+        <button onclick="showView('insights')" id="nav-insights" class="nav-rail py-2.5 text-[13px] font-medium whitespace-nowrap">Call insights</button>
+      </nav>
     </div>
-  </nav>
+  </header>
 
   <div id="app" class="hidden">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+    <main id="main" class="max-w-3xl mx-auto px-5 sm:px-8 py-8 sm:py-12">
 
-      <!-- ══════════════ VIEW: CREATE AGENT (WIZARD) ══════════════ -->
-      <div id="view-create" class="fade-in">
-        <div class="max-w-3xl mx-auto">
-          <!-- Progress -->
-          <div class="flex items-center justify-center gap-2 mb-8" id="progress-dots"></div>
+      <!-- ══════════ CREATE AGENT ══════════ -->
+      <section id="view-create" aria-label="Create an agent">
+        <div id="progress-dots" class="flex items-center gap-2 text-xs num mb-8 text-soft justify-center"></div>
 
-          <!-- STEP 1: category -->
-          <div class="step" id="step-1">
-            <h2 class="text-2xl font-bold text-center mb-2">What kind of business do you run?</h2>
-            <p class="text-gray-400 text-center mb-8 text-sm">Your phone agent will introduce itself accordingly.</p>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <button class="cat-card bg-slate-800 border border-slate-600 rounded-xl p-6 text-center hover:border-blue-500" data-cat="store"><div class="text-3xl mb-2">🏪</div><p class="text-sm font-semibold">Shop / Store</p></button>
-              <button class="cat-card bg-slate-800 border border-slate-600 rounded-xl p-6 text-center hover:border-blue-500" data-cat="showroom"><div class="text-3xl mb-2">🚗</div><p class="text-sm font-semibold">Vehicle Showroom</p></button>
-              <button class="cat-card bg-slate-800 border border-slate-600 rounded-xl p-6 text-center hover:border-blue-500" data-cat="finance"><div class="text-3xl mb-2">💼</div><p class="text-sm font-semibold">Finance / Loans</p></button>
-              <button class="cat-card bg-slate-800 border border-slate-600 rounded-xl p-6 text-center hover:border-blue-500" data-cat="agency"><div class="text-3xl mb-2">📣</div><p class="text-sm font-semibold">Agency / Services</p></button>
-              <button class="cat-card bg-slate-800 border border-slate-600 rounded-xl p-6 text-center hover:border-blue-500" data-cat="clinic"><div class="text-3xl mb-2">🏥</div><p class="text-sm font-semibold">Clinic / Hospital</p></button>
-              <button class="cat-card bg-slate-800 border border-slate-600 rounded-xl p-6 text-center hover:border-blue-500" data-cat="realestate"><div class="text-3xl mb-2">🏠</div><p class="text-sm font-semibold">Real Estate</p></button>
-              <button class="cat-card bg-slate-800 border border-slate-600 rounded-xl p-6 text-center hover:border-blue-500" data-cat="other"><div class="text-3xl mb-2">✨</div><p class="text-sm font-semibold">Something else</p></button>
-            </div>
-            <div class="text-center mt-8"><button onclick="gotoStep(2)" id="btn-step1" disabled class="bg-gradient-to-r from-blue-600 to-purple-600 px-8 py-3 rounded-lg font-bold disabled:opacity-40 transition">Next <i class="fas fa-arrow-right ml-1"></i></button></div>
+        <div class="step" id="step-1">
+          <h1 class="font-display text-2xl sm:text-3xl font-bold text-center mb-2">What kind of business do you run?</h1>
+          <p class="text-soft text-center mb-8 text-sm">Your phone agent introduces itself accordingly.</p>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" role="group" aria-label="Business category — pick one">
+            <button aria-pressed="false" class="cat-tile cat-card rounded-lg p-5 text-center" data-cat="store"><div class="text-2xl mb-1.5" aria-hidden="true">🏪</div><p class="text-[13px] font-medium">Shop / store</p></button>
+            <button aria-pressed="false" class="cat-tile cat-card rounded-lg p-5 text-center" data-cat="showroom"><div class="text-2xl mb-1.5" aria-hidden="true">🚗</div><p class="text-[13px] font-medium">Vehicle showroom</p></button>
+            <button aria-pressed="false" class="cat-tile cat-card rounded-lg p-5 text-center" data-cat="finance"><div class="text-2xl mb-1.5" aria-hidden="true">💼</div><p class="text-[13px] font-medium">Finance / loans</p></button>
+            <button aria-pressed="false" class="cat-tile cat-card rounded-lg p-5 text-center" data-cat="agency"><div class="text-2xl mb-1.5" aria-hidden="true">📣</div><p class="text-[13px] font-medium">Agency / services</p></button>
+            <button aria-pressed="false" class="cat-tile cat-card rounded-lg p-5 text-center" data-cat="clinic"><div class="text-2xl mb-1.5" aria-hidden="true">🏥</div><p class="text-[13px] font-medium">Clinic / hospital</p></button>
+            <button aria-pressed="false" class="cat-tile cat-card rounded-lg p-5 text-center" data-cat="realestate"><div class="text-2xl mb-1.5" aria-hidden="true">🏠</div><p class="text-[13px] font-medium">Real estate</p></button>
+            <button aria-pressed="false" class="cat-tile cat-card rounded-lg p-5 text-center" data-cat="other"><div class="text-2xl mb-1.5" aria-hidden="true">✨</div><p class="text-[13px] font-medium">Something else</p></button>
           </div>
-
-          <!-- STEP 2: business basics -->
-          <div class="step hidden" id="step-2">
-            <h2 class="text-2xl font-bold text-center mb-8">Tell us about your business</h2>
-            <div class="bg-slate-800 border border-slate-700 rounded-xl p-8 space-y-5">
-              <div>
-                <label class="block text-sm font-medium text-gray-300 mb-2">Business name *</label>
-                <input id="w-name" type="text" placeholder="e.g. Sharma Automobiles" class="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500">
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-300 mb-2">What language should your agent speak? *</label>
-                <select id="w-lang" class="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500">
-                  <option value="en">English</option>
-                  <option value="gu">Gujarati</option>
-                  <option value="hi">Hindi</option>
-                </select>
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-300 mb-2">Where are you located? (city / area)</label>
-                <input id="w-city" type="text" placeholder="e.g. SG Highway, Ahmedabad" class="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500">
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-300 mb-2">Your opening hours</label>
-                <input id="w-hours" type="text" placeholder="e.g. Mon-Sat 10am to 8pm, Sunday closed" class="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500">
-              </div>
-            </div>
-            <div class="flex justify-between mt-8">
-              <button onclick="gotoStep(1)" class="bg-slate-700 px-6 py-3 rounded-lg font-semibold hover:bg-slate-600 transition">Back</button>
-              <button onclick="gotoStep(3)" class="bg-gradient-to-r from-blue-600 to-purple-600 px-8 py-3 rounded-lg font-bold transition">Next <i class="fas fa-arrow-right ml-1"></i></button>
-            </div>
-          </div>
-
-          <!-- STEP 3: products/services -->
-          <div class="step hidden" id="step-3">
-            <h2 class="text-2xl font-bold text-center mb-2">What do you offer?</h2>
-            <p class="text-gray-400 text-center mb-6 text-sm" id="s3-hint">List your main products or services with prices — one per line. Your agent answers calls using exactly this.</p>
-            <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 space-y-4">
-              <textarea id="w-products" rows="7" placeholder="e.g.&#10;BMW 3 Series - Rs 62 lakh&#10;BMW X1 - Rs 49 lakh&#10;Free test drive with 1 day notice" class="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 font-mono text-sm"></textarea>
-              <div>
-                <label class="block text-sm font-medium text-gray-300 mb-2">Anything else callers should know? (optional)</label>
-                <textarea id="w-extra" rows="3" placeholder="e.g. Home delivery above Rs 500, UPI accepted, exchange offers this month…" class="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 text-sm"></textarea>
-              </div>
-            </div>
-            <div class="flex justify-between mt-8">
-              <button onclick="gotoStep(2)" class="bg-slate-700 px-6 py-3 rounded-lg font-semibold hover:bg-slate-600 transition">Back</button>
-              <button onclick="gotoStep(4)" class="bg-gradient-to-r from-blue-600 to-purple-600 px-8 py-3 rounded-lg font-bold transition">Next <i class="fas fa-arrow-right ml-1"></i></button>
-            </div>
-          </div>
-
-          <!-- STEP 4: document (optional) + finish -->
-          <div class="step hidden" id="step-4">
-            <h2 class="text-2xl font-bold text-center mb-2">Have a price list or brochure?</h2>
-            <p class="text-gray-400 text-center mb-6 text-sm">Upload it and your agent knows even more. You can also skip — your answers above are enough.</p>
-            <div class="bg-slate-800 border border-slate-700 rounded-xl p-8">
-              <div id="dropZone" class="border-2 border-dashed border-slate-600 rounded-lg p-8 text-center cursor-pointer hover:border-blue-500 hover:bg-slate-700 transition">
-                <div class="text-4xl mb-3">📄</div>
-                <p class="text-sm font-medium text-gray-300">Click to upload or drag & drop</p>
-                <p class="text-xs text-gray-500 mt-2">PDF, TXT, CSV or Excel</p>
-              </div>
-              <input type="file" id="fileInput" accept=".pdf,.txt,.csv,.xlsx,.xls" class="hidden">
-              <div id="fileHint" class="text-xs text-gray-400 mt-2"></div>
-
-              <div id="result-wrap" class="hidden mt-6">
-                <div class="bg-gradient-to-br from-green-900 to-green-950 rounded-lg p-6 border border-green-700">
-                  <h3 class="font-bold text-lg mb-4"><span class="text-green-400">✓</span> Your agent is ready!</h3>
-                  <div class="grid md:grid-cols-3 gap-3 mb-4 text-sm">
-                    <div class="bg-slate-700 bg-opacity-50 p-3 rounded-lg"><p class="text-gray-400 text-xs mb-1">BUSINESS</p><p id="r-name" class="font-bold"></p></div>
-                    <div class="bg-slate-700 bg-opacity-50 p-3 rounded-lg"><p class="text-gray-400 text-xs mb-1">LANGUAGE</p><p id="r-lang" class="font-bold"></p></div>
-                    <div class="bg-slate-700 bg-opacity-50 p-3 rounded-lg"><p class="text-gray-400 text-xs mb-1">AGENT ID</p><p id="r-id" class="font-bold"></p></div>
-                  </div>
-                  <p class="text-xs text-gray-300">📞 Customers can call your agent once you connect a phone number — see <b>Call Insights</b> tab for callers and their details.</p>
-                </div>
-              </div>
-
-              <div id="errorMsg" class="text-red-400 text-sm mt-4 p-3 bg-red-950 rounded-lg hidden"></div>
-            </div>
-            <div class="flex justify-between mt-8">
-              <button onclick="gotoStep(3)" class="bg-slate-700 px-6 py-3 rounded-lg font-semibold hover:bg-slate-600 transition">Back</button>
-              <button id="submitBtn" onclick="submitWizard()" class="bg-gradient-to-r from-blue-600 to-purple-600 px-8 py-3 rounded-lg font-bold transition disabled:opacity-50"><span id="btnText">Create My Voice Agent</span> <i class="fas fa-magic ml-1"></i></button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ══════════════ VIEW: TRY AGENT (talk to Meera) ══════════════ -->
-      <div id="view-talk" class="hidden fade-in">
-        <div class="max-w-2xl mx-auto">
-          <div class="bg-slate-800 border border-slate-700 rounded-xl p-8">
-            <div class="flex items-center justify-between mb-1">
-              <h2 class="text-2xl font-bold flex items-center gap-2"><span class="text-2xl">🎤</span> Talk to your agent</h2>
-              <select id="talk-agent" onchange="resetTalk(true)" class="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"></select>
-            </div>
-            <p class="text-gray-400 text-sm mb-6">This is EXACTLY what your customers hear on the phone. Speak in any language — Hindi, Gujarati or English.</p>
-            
-            <div id="chat-box" class="space-y-3 bg-slate-900 rounded-xl p-5 h-96 overflow-y-auto mb-4">
-              <p class="text-gray-500 text-center text-sm py-8" id="chat-empty">Press the mic and say something —<br>try “What are your prices?” or “ब्याज दर क्या है?”</p>
-            </div>
-            
-            <div class="flex items-center gap-3">
-              <button id="mic-btn" onclick="toggleMic()" class="w-14 h-14 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 flex items-center justify-center text-xl transition disabled:opacity-50" title="Hold a conversation">
-                <i id="mic-icon" class="fas fa-microphone"></i>
-              </button>
-              <input id="type-box" type="text" placeholder="…or type here and press Enter" onkeydown="if(event.key==='Enter')typeToAgent()"
-                class="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 text-sm">
-              <button onclick="typeToAgent()" class="bg-slate-700 hover:bg-slate-600 px-4 py-3 rounded-lg text-sm transition"><i class="fas fa-paper-plane"></i></button>
-              <button onclick="resetTalk()" class="bg-slate-700 hover:bg-slate-600 px-4 py-3 rounded-lg text-sm transition" title="Start over"><i class="fas fa-redo"></i></button>
-            </div>
-            <div id="talk-status" class="text-xs text-gray-400 mt-3 h-4"></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ══════════════ VIEW: OUTBOUND CALLS ══════════════ -->
-      <div id="view-outbound" class="hidden fade-in">
-        <div class="grid lg:grid-cols-2 gap-8 mb-8">
-          <!-- Call one number -->
-          <div class="bg-slate-800 border border-slate-700 rounded-xl p-8">
-            <h3 class="text-xl font-bold mb-2 flex items-center gap-2"><span class="text-2xl">📱</span> Call one customer now</h3>
-            <p class="text-gray-400 text-sm mb-6">Your agent calls this number and talks to them personally.</p>
-            <div class="space-y-4">
-              <div class="grid grid-cols-2 gap-3">
-                <input id="one-name" type="text" placeholder="Their name (optional)" class="bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 text-sm">
-                <input id="one-number" type="text" placeholder="Mobile number *" class="bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 text-sm">
-              </div>
-              <input id="one-info" type="text" placeholder="What should your agent mention? e.g. new X5 exchange offer" class="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 text-sm">
-              <div class="flex items-center gap-3">
-                <select id="one-agent" class="bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-blue-500"></select>
-                <button onclick="callOne()" id="one-btn" class="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 font-bold py-3 rounded-lg transition disabled:opacity-50">📞 Call now</button>
-              </div>
-              <div id="one-result" class="text-sm hidden rounded-lg p-3"></div>
-            </div>
-          </div>
-
-          <!-- Excel campaign -->
-          <div class="bg-slate-800 border border-slate-700 rounded-xl p-8">
-            <h3 class="text-xl font-bold mb-2 flex items-center gap-2"><span class="text-2xl">📋</span> Call your whole customer list</h3>
-            <p class="text-gray-400 text-sm mb-4">Upload an Excel/CSV with columns <b>name</b>, <b>mobile</b>, <b>info</b> — your agent calls each one and personalizes every conversation. <a href="/sample_call_list.csv" class="text-blue-400 underline">Download sample CSV</a></p>
-            <div id="campZone" class="border-2 border-dashed border-slate-600 rounded-lg p-6 text-center cursor-pointer hover:border-blue-500 hover:bg-slate-700 transition">
-              <div class="text-3xl mb-2">📥</div>
-              <p class="text-sm font-medium text-gray-300">Click to upload your list</p>
-              <p class="text-xs text-gray-500 mt-1">.xlsx or .csv</p>
-            </div>
-            <input type="file" id="campFile" accept=".xlsx,.xls,.csv" class="hidden">
-            <div id="camp-summary" class="mt-4 hidden">
-              <div class="bg-slate-700 rounded-lg p-4 text-sm" id="camp-summary-text"></div>
-              <div class="flex gap-3 mt-4">
-                <select id="camp-agent" class="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"></select>
-                <button onclick="startCampaign()" id="camp-start" class="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 font-bold py-2 rounded-lg transition disabled:opacity-50">🚀 Start calling all</button>
-              </div>
-            </div>
-            <div id="camp-error" class="text-red-400 text-sm mt-3 p-3 bg-red-950 rounded-lg hidden"></div>
+          <div class="text-center mt-8">
+            <button onclick="gotoStep(2)" id="btn-step1" disabled class="btn-ink px-7 py-2.5 rounded-lg font-medium text-sm">Next <i class="fas fa-arrow-right ml-1" aria-hidden="true"></i></button>
           </div>
         </div>
 
-        <!-- Live campaign progress -->
-        <div id="camp-progress" class="bg-slate-800 border border-slate-700 rounded-xl p-8 hidden">
+        <div class="step hidden" id="step-2">
+          <h2 class="font-display text-2xl font-bold mb-6">Tell us about your business</h2>
+          <div class="bg-raised border border-rule rounded-lg px-6 py-2">
+            <div class="pad-row"><label class="pad-label" for="w-name">Business name (required)</label><input id="w-name" name="business_name" autocomplete="organization" type="text" placeholder="Sharma Automobiles" class="pad-input"></div>
+            <div class="pad-row"><label class="pad-label" for="w-lang">Language your agent speaks</label>
+              <select id="w-lang" name="language" class="pad-input">
+                <option value="en">English</option><option value="gu">ગુજરાતી (Gujarati)</option><option value="hi">हिन्दी (Hindi)</option>
+              </select></div>
+            <div class="pad-row"><label class="pad-label" for="w-city">City or area</label><input id="w-city" name="city" autocomplete="address-level2" type="text" placeholder="SG Highway, Ahmedabad" class="pad-input"></div>
+            <div class="pad-row"><label class="pad-label" for="w-hours">Opening hours</label><input id="w-hours" name="hours" type="text" placeholder="Mon–Sat 10am–8pm, Sunday closed" class="pad-input"></div>
+          </div>
+          <div class="flex justify-between mt-8">
+            <button onclick="gotoStep(1)" class="btn-quiet px-5 py-2.5 rounded-lg text-sm font-medium">Back</button>
+            <button onclick="gotoStep(3)" class="btn-ink px-7 py-2.5 rounded-lg font-medium text-sm">Next <i class="fas fa-arrow-right ml-1" aria-hidden="true"></i></button>
+          </div>
+        </div>
+
+        <div class="step hidden" id="step-3">
+          <h2 class="font-display text-2xl font-bold mb-2">What do you offer?</h2>
+          <p class="text-soft mb-6 text-sm" id="s3-hint">List your main products or services with prices — one per line. Your agent answers calls using exactly this.</p>
+          <div class="bg-raised border border-rule rounded-lg px-6 py-2">
+            <div class="pad-row"><label class="pad-label" for="w-products">Products or services, one per line</label><textarea id="w-products" name="products" rows="6" placeholder="BMW 3 Series — Rs 62 lakh&#10;BMW X1 — Rs 49 lakh&#10;Free test drive with 1 day notice" class="pad-input leading-relaxed"></textarea></div>
+            <div class="pad-row"><label class="pad-label" for="w-extra">Anything else callers should know (optional)</label><textarea id="w-extra" name="extra" rows="2" placeholder="Home delivery above Rs 500, UPI accepted…" class="pad-input leading-relaxed"></textarea></div>
+          </div>
+          <div class="flex justify-between mt-8">
+            <button onclick="gotoStep(2)" class="btn-quiet px-5 py-2.5 rounded-lg text-sm font-medium">Back</button>
+            <button onclick="gotoStep(4)" class="btn-ink px-7 py-2.5 rounded-lg font-medium text-sm">Next <i class="fas fa-arrow-right ml-1" aria-hidden="true"></i></button>
+          </div>
+        </div>
+
+        <div class="step hidden" id="step-4">
+          <h2 class="font-display text-2xl font-bold mb-2">Have a price list or brochure?</h2>
+          <p class="text-soft mb-6 text-sm">Upload it and your agent knows even more. You can skip — your answers above are enough.</p>
+          <div class="bg-raised border border-rule rounded-lg p-6">
+            <button type="button" id="dropZone" aria-label="Upload a price list or brochure: PDF, TXT, CSV or Excel" class="dropzone rounded-lg p-8 text-center cursor-pointer">
+              <div class="text-2xl mb-2" aria-hidden="true">📄</div>
+              <p class="text-sm font-medium">Click to upload, or drop a file here</p>
+              <p class="text-xs text-soft mt-1">PDF, TXT, CSV or Excel</p>
+            </button>
+            <input type="file" id="fileInput" accept=".pdf,.txt,.csv,.xlsx,.xls" class="sr-only">
+            <div id="fileHint" class="text-xs text-soft mt-2" aria-live="polite"></div>
+
+            <div id="result-wrap" class="hidden mt-6 border border-ledger rounded-lg p-6 bg-raised">
+              <h3 class="font-display text-lg font-bold mb-4"><span class="text-ledger" aria-hidden="true">✓</span> Your agent is ready</h3>
+              <div class="grid sm:grid-cols-3 gap-4 mb-4 text-sm">
+                <div><p class="text-soft text-xs mb-1">Business</p><p id="r-name" class="font-medium"></p></div>
+                <div><p class="text-soft text-xs mb-1">Language</p><p id="r-lang" class="font-medium"></p></div>
+                <div><p class="text-soft text-xs mb-1">Agent ID</p><p id="r-id" class="font-mono text-xs"></p></div>
+              </div>
+              <p class="text-xs text-soft">Customers can call your agent once a phone number is connected — open <b>Call customers</b> to dial out, or <b>Talk to agent</b> to try it first.</p>
+            </div>
+
+            <div id="errorMsg" role="alert" class="hidden mt-4 text-sm text-rust border border-rust rounded-lg px-3 py-2 bg-raised"></div>
+          </div>
+          <div class="flex justify-between mt-8">
+            <button onclick="gotoStep(3)" class="btn-quiet px-5 py-2.5 rounded-lg text-sm font-medium">Back</button>
+            <button id="submitBtn" onclick="submitWizard()" class="btn-ink px-7 py-2.5 rounded-lg font-medium text-sm"><span id="btnText">Create my voice agent</span></button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══════════ TALK TO AGENT ══════════ -->
+      <section id="view-talk" class="hidden" aria-label="Talk to your agent">
+        <div class="flex flex-wrap items-center justify-between gap-4 mb-1">
+          <h1 class="font-display text-2xl font-bold">Talk to your agent</h1>
+          <label class="sr-only" for="talk-agent">Choose an agent</label>
+          <select id="talk-agent" onchange="resetTalk(true)" class="bg-raised border border-rule rounded-lg px-3 py-1.5 text-sm"></select>
+        </div>
+        <p class="text-soft text-sm mb-6">This is exactly what callers hear. Speak or type — Hindi, Gujarati or English.</p>
+
+        <div id="chat-box" role="log" aria-live="polite" aria-label="Conversation with your agent" class="space-y-3 border border-rule rounded-lg p-5 h-96 overflow-y-auto bg-raised mb-4">
+          <p class="text-soft text-center text-sm py-10" id="chat-empty">Press the mic and say something —<br>try “What are your prices?” or “ब्याज दर क्या है?”</p>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <button id="mic-btn" onclick="toggleMic()" aria-label="Hold to speak to your agent" aria-pressed="false" class="w-14 h-14 rounded-full btn-ink flex items-center justify-center text-xl">
+            <i id="mic-icon" class="fas fa-microphone" aria-hidden="true"></i>
+          </button>
+          <label class="sr-only" for="type-box">Type a question</label>
+          <input id="type-box" type="text" placeholder="…or type a question and press Enter" onkeydown="if(event.key==='Enter')typeToAgent()"
+                 class="flex-1 min-w-0 bg-raised border border-rule rounded-lg px-4 py-3 text-sm">
+          <button onclick="typeToAgent()" aria-label="Send question" class="btn-quiet px-4 py-3 rounded-lg"><i class="fas fa-paper-plane" aria-hidden="true"></i></button>
+          <button onclick="resetTalk()" aria-label="Start a new conversation" class="btn-quiet px-4 py-3 rounded-lg"><i class="fas fa-redo" aria-hidden="true"></i></button>
+        </div>
+        <div id="talk-status" aria-live="polite" class="text-xs text-soft mt-3 h-4"></div>
+      </section>
+
+      <!-- ══════════ CALL CUSTOMERS ══════════ -->
+      <section id="view-outbound" class="hidden" aria-label="Call customers">
+        <h1 class="font-display text-2xl font-bold mb-1">Call customers</h1>
+        <p class="text-soft text-sm mb-6">Your agent calls out and talks to them personally.</p>
+
+        <div id="one-result" class="hidden text-sm rounded-lg px-4 py-3 mb-6 border bg-raised" role="status" aria-live="polite"></div>
+
+        <div class="bg-raised border border-rule rounded-lg p-6 mb-6">
+          <h2 class="text-base font-semibold mb-1">Call one customer now</h2>
+          <p class="text-xs text-soft mb-3">They'll hear Meera open with your business details.</p>
+          <div class="pad-row"><label class="pad-label" for="one-name">Their name (optional)</label><input id="one-name" name="customer_name" autocomplete="name" type="text" placeholder="Rajesh Kumar" class="pad-input"></div>
+          <div class="pad-row"><label class="pad-label" for="one-number">Mobile number (required)</label><input id="one-number" name="customer_phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="98765 43210" class="pad-input num"></div>
+          <div class="pad-row"><label class="pad-label" for="one-info">What should she mention?</label><input id="one-info" name="customer_info" type="text" placeholder="New X5 exchange offer" class="pad-input"></div>
+          <div class="pad-row">
+            <label class="pad-label" for="one-agent">Speaking as</label>
+            <select id="one-agent" class="pad-input"></select>
+            <button onclick="callOne()" id="one-btn" class="btn-ink px-5 py-2.5 rounded-lg font-medium text-sm whitespace-nowrap">Call now</button>
+          </div>
+        </div>
+
+        <div id="call-slip" data-live="false" class="call-slip hidden rounded-lg p-4 mb-6" role="status" aria-live="polite">
+          <div class="flex items-center gap-3 flex-wrap">
+            <span id="slip-dot" class="live-dot" aria-hidden="true"></span>
+            <span id="slip-number" class="num font-medium text-sm"></span>
+            <span id="slip-name" class="text-sm text-soft truncate"></span>
+            <span class="flex-1"></span>
+            <span id="slip-elapsed" class="num text-sm text-soft">0:00</span>
+          </div>
+        </div>
+
+        <div class="bg-raised border border-rule rounded-lg p-6 mb-6">
+          <h2 class="text-base font-semibold mb-1">Call your whole customer list</h2>
+          <p class="text-xs text-soft mb-4">Upload Excel or CSV with columns <b>name</b>, <b>mobile</b>, <b>info</b> — Meera personalises every call. <a href="/sample_call_list.csv" class="underline">Download a sample CSV</a></p>
+          <button type="button" id="campZone" aria-label="Upload a customer list: Excel or CSV" class="dropzone rounded-lg p-6 text-center cursor-pointer">
+            <div class="text-xl mb-1" aria-hidden="true">📥</div>
+            <p class="text-sm font-medium">Click to upload your list</p>
+            <p class="text-xs text-soft mt-0.5">.xlsx or .csv</p>
+          </button>
+          <input type="file" id="campFile" accept=".xlsx,.xls,.csv" class="sr-only">
+          <div id="camp-summary" class="hidden mt-4">
+            <div class="border border-rule rounded-lg p-4 text-sm" id="camp-summary-text" aria-live="polite"></div>
+            <div class="flex gap-3 mt-4">
+              <label class="sr-only" for="camp-agent">Speaking as</label>
+              <select id="camp-agent" class="bg-raised border border-rule rounded-lg px-3 py-2 text-sm"></select>
+              <button onclick="startCampaign()" id="camp-start" class="flex-1 btn-ink font-medium py-2 rounded-lg text-sm">Start calling all</button>
+            </div>
+          </div>
+          <div id="camp-error" role="alert" class="hidden mt-3 text-sm text-rust border border-rust rounded-lg px-3 py-2"></div>
+        </div>
+
+        <div id="camp-progress" class="bg-raised border border-rule rounded-lg p-6 mb-6 hidden">
           <div class="flex justify-between items-center mb-4">
-            <h3 class="text-lg font-bold flex items-center gap-2"><span id="camp-status-icon">🚀</span> Calling progress <span id="camp-status-text" class="text-sm font-normal text-gray-400"></span></h3>
-            <button onclick="stopCampaign()" class="text-red-400 text-sm hover:text-red-300 transition">■ Stop</button>
+            <h2 class="text-base font-semibold"><span id="camp-status-icon" aria-hidden="true">📞</span> Calling <span id="camp-status-text" class="text-xs font-normal text-soft num"></span></h2>
+            <button onclick="stopCampaign()" class="text-xs text-rust hover:underline">Stop calling</button>
           </div>
-          <div class="w-full bg-slate-700 rounded-full h-3 mb-4"><div id="camp-bar" class="bg-gradient-to-r from-blue-500 to-purple-500 h-3 rounded-full transition-all" style="width:0%"></div></div>
-          <div id="camp-rows" class="space-y-2 max-h-96 overflow-y-auto"></div>
+          <div class="w-full bg-rule rounded-full h-1.5 mb-4"><div id="camp-bar" class="bg-ink h-1.5 rounded-full" style="width:0%; transition: width .4s ease"></div></div>
+          <div id="camp-rows" class="space-y-2 max-h-96 overflow-y-auto" aria-live="polite"></div>
         </div>
 
-        <!-- Outbound history -->
-        <div class="bg-slate-800 border border-slate-700 rounded-xl p-8">
-          <h3 class="text-xl font-bold mb-6 flex items-center gap-2"><span class="text-2xl">📤</span> Calls your agent made</h3>
-          <div id="outbound-list" class="space-y-2"><p class="text-gray-400 text-center py-6">Loading…</p></div>
+        <div>
+          <h2 class="text-base font-semibold mb-3">Calls your agent made</h2>
+          <div id="outbound-list" class="space-y-2" aria-live="polite"><p class="text-soft text-sm py-4">Loading…</p></div>
         </div>
-      </div>
+      </section>
 
-      <!-- ══════════════ VIEW: CALL INSIGHTS (CRM) ══════════════ -->
-      <div id="view-insights" class="hidden fade-in">
+      <!-- ══════════ CALL INSIGHTS ══════════ -->
+      <section id="view-insights" class="hidden" aria-label="Call insights">
+        <h1 class="font-display text-2xl font-bold mb-6">Call insights</h1>
 
-        <!-- Stat cards -->
-        <div class="grid md:grid-cols-4 gap-4 mb-8">
-          <div class="bg-slate-800 border border-slate-700 rounded-xl p-6">
-            <p class="text-gray-400 text-sm mb-1">Total calls</p>
-            <p class="text-3xl font-bold" id="i-total-calls">–</p>
-          </div>
-          <div class="bg-slate-800 border border-slate-700 rounded-xl p-6">
-            <p class="text-gray-400 text-sm mb-1">Interested callers</p>
-            <p class="text-3xl font-bold" id="i-total-leads">–</p>
-          </div>
-          <div class="bg-slate-800 border border-slate-700 rounded-xl p-6">
-            <p class="text-gray-400 text-sm mb-1">Visits / meetings booked</p>
-            <p class="text-3xl font-bold" id="i-booked">–</p>
-          </div>
-          <div class="bg-slate-800 border border-slate-700 rounded-xl p-6">
-            <p class="text-gray-400 text-sm mb-1">Numbers to follow up</p>
-            <p class="text-3xl font-bold" id="i-followup">–</p>
-          </div>
+        <div class="call-slip rounded-lg p-6 mb-8 bg-raised">
+          <p class="text-xs text-soft mb-1" id="insight-eyebrow">Next action</p>
+          <p class="font-display text-2xl sm:text-3xl font-bold mb-3" id="insight-hero">—</p>
+          <p class="text-sm text-soft mb-4" id="insight-sub"></p>
+          <button onclick="showView('outbound')" class="btn-quiet px-4 py-2 rounded-lg text-sm font-medium">Call them back</button>
         </div>
 
-        <!-- Leads table -->
-        <div class="bg-slate-800 rounded-xl border border-slate-700 p-8 mb-8">
-          <h3 class="text-xl font-bold mb-6 flex items-center gap-2"><span class="text-2xl">🎯</span> Interested Callers <span class="text-sm font-normal text-gray-400">(people to convert)</span></h3>
-          <div id="leads-list" class="space-y-3"><p class="text-gray-400 text-center py-6">Loading…</p></div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8 rule-b pb-6">
+          <div><p class="text-xs text-soft">Total calls</p><p class="font-display text-2xl font-bold num" id="i-total-calls">–</p></div>
+          <div><p class="text-xs text-soft">Interested callers</p><p class="font-display text-2xl font-bold num" id="i-total-leads">–</p></div>
+          <div><p class="text-xs text-soft">Visits booked</p><p class="font-display text-2xl font-bold num" id="i-booked">–</p></div>
+          <div><p class="text-xs text-soft">Numbers to follow up</p><p class="font-display text-2xl font-bold num" id="i-followup">–</p></div>
         </div>
 
-        <!-- Transcripts -->
-        <div class="bg-slate-800 rounded-xl border border-slate-700 p-8">
-          <h3 class="text-xl font-bold mb-6 flex items-center gap-2"><span class="text-2xl">📞</span> Recent Calls <span class="text-sm font-normal text-gray-400">(what customers actually said)</span></h3>
-          <div id="calls-list" class="space-y-3"><p class="text-gray-400 text-center py-6">Loading…</p></div>
+        <div class="mb-8">
+          <h2 class="text-base font-semibold mb-3">Interested callers</h2>
+          <div id="leads-list" class="space-y-3" aria-live="polite"><p class="text-soft text-sm py-4">Loading…</p></div>
         </div>
-      </div>
 
-    </div>
+        <div>
+          <h2 class="text-base font-semibold mb-3">Recent calls</h2>
+          <div id="calls-list" class="space-y-3" aria-live="polite"><p class="text-soft text-sm py-4">Loading…</p></div>
+        </div>
+      </section>
+
+    </main>
   </div>
 
-  <footer class="border-t border-slate-700 mt-16 py-8 text-center text-gray-400">
-    <p>VoxAgent — your business, answering every call 🚀</p>
+  <footer class="rule-b mt-16">
+    <div class="max-w-3xl mx-auto px-5 sm:px-8 py-6 text-xs text-soft flex justify-between">
+      <span>VoxAgent console</span><span>Meera answers your calls</span>
+    </div>
   </footer>
 
   <script>
     const API_BASE = "http://localhost:8000";
     const token = localStorage.getItem('voxagent_token');
     const authHeaders = { Authorization: `Bearer ${token}` };
+    const fmtNum = new Intl.NumberFormat('en-IN');
+    const fmtDate = new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
 
-    // ── Auth gate ─────────────────────────────────────────
+    // ── auth gate ─────────────────────────────────────────
     async function init() {
       if (!token) { location.href = 'login.html'; return; }
       try {
-        const res = await fetch(`${API_BASE}/api/auth/me`, { headers: authHeaders });
-        if (!res.ok) throw new Error();
-        const me = await res.json();
+        const me = await (await fetch(`${API_BASE}/api/auth/me`, { headers: authHeaders })).json();
         document.getElementById('user-name').textContent = me.name;
         document.getElementById('app').classList.remove('hidden');
         initWizard();
+        showView(new URLSearchParams(location.search).get('tab') || 'create');
         loadInsights();
+        loadBusinessChip();
       } catch (e) {
         localStorage.removeItem('voxagent_token');
-        localStorage.removeItem('voxagent_user');
         location.href = 'login.html';
       }
     }
     init();
+
+    async function loadBusinessChip() {
+      const res = await fetch(`${API_BASE}/api/businesses`, { headers: authHeaders });
+      if (!res.ok) return;
+      const first = (await res.json()).businesses?.[0];
+      if (first) { document.getElementById('business-chip').textContent = first.name; }
+    }
 
     function logout() {
       localStorage.removeItem('voxagent_token');
@@ -305,60 +351,50 @@
       location.href = 'index.html';
     }
 
-    // ── View switching ────────────────────────────────────
+    // ── view switching ────────────────────────────────────
+    const TABS = ['create', 'talk', 'outbound', 'insights'];
+
     function showView(which) {
-      document.getElementById('view-create').classList.toggle('hidden', which !== 'create');
-      document.getElementById('view-talk').classList.toggle('hidden', which !== 'talk');
-      document.getElementById('view-outbound').classList.toggle('hidden', which !== 'outbound');
-      document.getElementById('view-insights').classList.toggle('hidden', which !== 'insights');
-      ['create', 'talk', 'outbound', 'insights'].forEach(v => {
+      if (!TABS.includes(which)) which = 'create';
+      for (const v of TABS) {
+        document.getElementById('view-' + v).classList.toggle('hidden', v !== which);
         const btn = document.getElementById('nav-' + v);
-        btn.classList.toggle('bg-slate-800', v === which);
-        btn.classList.toggle('text-white', v === which);
-        btn.classList.toggle('text-gray-400', v !== which);
-      });
+        if (v === which) btn.setAttribute('aria-current', 'page'); else btn.removeAttribute('aria-current');
+      }
+      history.replaceState(null, '', `?tab=${which}`);  // so a reload keeps you here
       if (which === 'insights') loadInsights();
       if (which === 'outbound') initOutbound();
       if (which === 'talk') initTalk();
     }
 
-    // ── Talk to your agent ────────────────────────────────
-    let mediaRecorder = null;
-    let audioChunks = [];
-    let recording = false;
-    let talkBusy = false;
+    // ── talk to agent ─────────────────────────────────────
+    let mediaRecorder = null, audioChunks = [], recording = false, talkBusy = false;
 
     async function initTalk() {
       if (!myAgents.length) {
-        try {
-          const res = await fetch(`${API_BASE}/api/businesses`, { headers: authHeaders });
-          if (res.ok) { const d = await res.json(); myAgents = d.businesses || []; }
-        } catch (e) {}
+        const res = await fetch(`${API_BASE}/api/businesses`, { headers: authHeaders });
+        if (res.ok) myAgents = (await res.json()).businesses || [];
       }
       const sel = document.getElementById('talk-agent');
       if (sel.options.length !== myAgents.length) {
-        sel.innerHTML = myAgents.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
+        sel.innerHTML = myAgents.map(a => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.name)}</option>`).join('');
       }
     }
 
     function chatBubble(who, text) {
       document.getElementById('chat-empty')?.remove();
-      const box = document.getElementById('chat-box');
       const div = document.createElement('div');
-      if (who === 'you') {
-        div.className = 'flex justify-end';
-        div.innerHTML = `<div class="bg-blue-600 rounded-2xl rounded-br-sm px-4 py-2 max-w-[80%] text-sm">${escapeHtml(text)}</div>`;
-      } else {
-        div.className = 'flex justify-start';
-        div.innerHTML = `<div class="bg-slate-700 rounded-2xl rounded-bl-sm px-4 py-2 max-w-[80%] text-sm">${escapeHtml(text)}</div>`;
-      }
+      div.className = who === 'you' ? 'flex justify-end' : 'flex justify-start';
+      const inner = document.createElement('div');
+      inner.className = `rounded-lg px-4 py-2 max-w-[85%] text-sm leading-relaxed ${who === 'you' ? 'bubble-you' : 'bubble-meera'}`;
+      inner.textContent = text;
+      div.appendChild(inner);
+      const box = document.getElementById('chat-box');
       box.appendChild(div);
       box.scrollTop = box.scrollHeight;
     }
 
-    function toggleMic() {
-      if (recording) { stopRecording(); } else { startRecording(); }
-    }
+    function toggleMic() { recording ? stopRecording() : startRecording(); }
 
     async function startRecording() {
       if (talkBusy) return;
@@ -372,33 +408,36 @@
         mediaRecorder.onstop = () => sendRecording();
         mediaRecorder.start();
         recording = true;
+        const btn = document.getElementById('mic-btn');
+        btn.setAttribute('aria-pressed', 'true');
+        btn.classList.add('ring-2', 'ring-marigold');
         document.getElementById('mic-icon').className = 'fas fa-stop';
-        document.getElementById('mic-btn').classList.add('animate-pulse');
-        setTalkStatus('🔴 Listening… press again when done speaking');
+        setTalkStatus('Listening… press again when you finish speaking');
       } catch (e) {
-        setTalkStatus('Microphone blocked — allow mic access, or type instead.');
+        setTalkStatus('Microphone blocked — allow mic access in your browser, or type instead.');
       }
     }
 
     function stopRecording() {
       if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop();
       recording = false;
+      const btn = document.getElementById('mic-btn');
+      btn.setAttribute('aria-pressed', 'false');
+      btn.classList.remove('ring-2', 'ring-marigold');
       document.getElementById('mic-icon').className = 'fas fa-microphone';
-      document.getElementById('mic-btn').classList.remove('animate-pulse');
       setTalkStatus('Thinking…');
     }
 
     async function sendRecording() {
       const agentId = document.getElementById('talk-agent').value;
-      const blob = new Blob(audioChunks, { type: 'audio/webm' });
       const fd = new FormData();
-      fd.append('file', blob, 'speech.webm');
+      fd.append('file', new Blob(audioChunks, { type: 'audio/webm' }), 'speech.webm');
       talkBusy = true;
       try {
         const res = await fetch(`${API_BASE}/api/try/${agentId}/listen`, { method: 'POST', headers: authHeaders, body: fd });
         const d = await res.json();
         if (!res.ok) throw new Error(d.detail || 'failed');
-        if (d.heard_nothing) { setTalkStatus("Didn't catch that — try again or type."); return; }
+        if (d.heard_nothing) { setTalkStatus("Didn't catch that — try again, or type your question."); return; }
         chatBubble('you', d.you);
         chatBubble('meera', d.meera);
         if (d.audio) new Audio(`${API_BASE}${d.audio}`).play();
@@ -409,9 +448,9 @@
     }
 
     async function typeToAgent() {
-      const agentId = document.getElementById('talk-agent').value;
       const box = document.getElementById('type-box');
       const text = box.value.trim();
+      const agentId = document.getElementById('talk-agent').value;
       if (!text || talkBusy) return;
       if (!agentId) { setTalkStatus('Create an agent first.'); return; }
       box.value = '';
@@ -420,8 +459,7 @@
       setTalkStatus('Thinking…');
       try {
         const res = await fetch(`${API_BASE}/api/try/${agentId}/say`, {
-          method: 'POST',
-          headers: { ...authHeaders, 'Content-Type': 'application/json' },
+          method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' },
           body: JSON.stringify({ text }),
         });
         const d = await res.json();
@@ -436,55 +474,45 @@
 
     async function resetTalk(skipReload) {
       const agentId = document.getElementById('talk-agent')?.value;
-      document.getElementById('chat-box').innerHTML = '<p class="text-gray-500 text-center text-sm py-8" id="chat-empty">Press the mic and say something —<br>try “What are your prices?” or “ब्याज दर क्या है?”</p>';
-      if (agentId && !skipReload) {
-        await fetch(`${API_BASE}/api/try/${agentId}/reset`, { method: 'POST', headers: authHeaders });
-      }
+      const box = document.getElementById('chat-box');
+      box.innerHTML = '<p class="text-soft text-center text-sm py-10" id="chat-empty">Press the mic and say something —<br>try “What are your prices?” or “ब्याज दर क्या है?”</p>';
+      if (agentId && !skipReload) await fetch(`${API_BASE}/api/try/${agentId}/reset`, { method: 'POST', headers: authHeaders });
     }
 
     function setTalkStatus(msg) { document.getElementById('talk-status').textContent = msg; }
 
-    // ── Outbound calling ──────────────────────────────────
-    let myAgents = [];
-    let currentCampaignId = null;
-    let progressTimer = null;
+    // ── outbound ──────────────────────────────────────────
+    let myAgents = [], currentCampaignId = null, progressTimer = null, slipTimer = null, slipStart = 0;
 
     async function initOutbound() {
-      // agent dropdowns
       if (!myAgents.length) {
-        try {
-          const res = await fetch(`${API_BASE}/api/businesses`, { headers: authHeaders });
-          if (res.ok) { const d = await res.json(); myAgents = d.businesses || []; }
-        } catch (e) {}
+        const res = await fetch(`${API_BASE}/api/businesses`, { headers: authHeaders });
+        if (res.ok) myAgents = (await res.json()).businesses || [];
       }
-      const opts = myAgents.map(a => `<option value="${a.id}">${a.name}</option>`).join('') || '<option value="">— create an agent first —</option>';
+      const opts = myAgents.map(a => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.name)}</option>`).join('')
+        || '<option value="">Create an agent first</option>';
       document.getElementById('one-agent').innerHTML = opts;
       document.getElementById('camp-agent').innerHTML = opts;
-      
-      // phone connected?
-      try {
-        const st = await (await fetch(`${API_BASE}/api/phone/status`, { headers: authHeaders })).json();
-        if (!st.connected) {
-          document.getElementById('one-result').className = 'text-sm rounded-lg p-3 bg-yellow-950 text-yellow-300';
-          document.getElementById('one-result').textContent = '⚠️ Phone calling isn\'t connected yet — add your Vonage keys in the .env file. Everything else still works.';
-          document.getElementById('one-result').classList.remove('hidden');
-        }
-      } catch (e) {}
-      
+
+      const st = await (await fetch(`${API_BASE}/api/phone/status`, { headers: authHeaders })).json();
+      if (!st.connected) {
+        showOneResult(
+          "Phone calling isn't set up yet — whoever runs this backend needs to add the Twilio account SID and auth token to its .env file. Everything else here still works.",
+          false, true);
+      }
       loadOutboundHistory();
     }
 
     async function callOne() {
       const number = document.getElementById('one-number').value.trim();
-      if (!number) { showOneResult('Enter a mobile number first.', false); return; }
       const agentId = document.getElementById('one-agent').value;
-      if (!agentId) { showOneResult('Create an agent first.', false); return; }
+      if (!number) { showOneResult('Enter a mobile number to call.'); return; }
+      if (!agentId) { showOneResult('Create an agent first.'); return; }
       const btn = document.getElementById('one-btn');
       btn.disabled = true; btn.textContent = 'Dialing…';
       try {
         const res = await fetch(`${API_BASE}/api/call-now/${agentId}`, {
-          method: 'POST',
-          headers: { ...authHeaders, 'Content-Type': 'application/json' },
+          method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             number,
             name: document.getElementById('one-name').value.trim(),
@@ -493,28 +521,52 @@
         });
         const d = await res.json();
         showOneResult(d.detail || (d.success ? 'Call started' : 'Call failed'), d.success);
-        if (d.success) { document.getElementById('one-number').value = ''; loadOutboundHistory(); }
+        if (d.success) {
+          document.getElementById('one-number').value = '';
+          showSlip(number, document.getElementById('one-name').value.trim(), true);
+          loadOutboundHistory();
+        }
       } catch (e) {
-        showOneResult('Something went wrong — try again.', false);
-      } finally { btn.disabled = false; btn.textContent = '📞 Call now'; }
+        showOneResult('Something went wrong — try again.');
+      } finally { btn.disabled = false; btn.textContent = 'Call now'; }
     }
 
-    function showOneResult(msg, ok) {
+    function showOneResult(msg, ok, warn) {
       const el = document.getElementById('one-result');
-      el.className = `text-sm rounded-lg p-3 ${ok ? 'bg-green-950 text-green-300' : 'bg-red-950 text-red-300'}`;
-      el.textContent = msg;
+      el.className = `text-sm rounded-lg px-4 py-3 mb-6 border bg-raised ${ok ? 'border-ledger text-ledger' : warn ? 'border-marigold text-ink' : 'border-rust text-rust'}`;
+      el.textContent = (ok ? '✓ ' : warn ? '⚠ ' : '') + msg;
       el.classList.remove('hidden');
     }
 
-    // Excel upload
+    // the signature element: one live call, one marigold edge, ticking time
+    function showSlip(number, name, live) {
+      const slip = document.getElementById('call-slip');
+      document.getElementById('slip-number').textContent = number;
+      document.getElementById('slip-name').textContent = name;
+      document.getElementById('slip-dot').style.visibility = live ? 'visible' : 'hidden';
+      slip.dataset.live = String(!!live);
+      slip.classList.remove('hidden');
+      clearInterval(slipTimer);
+      if (live) {
+        slipStart = Date.now();
+        const el = document.getElementById('slip-elapsed');
+        slipTimer = setInterval(() => {
+          const s = Math.floor((Date.now() - slipStart) / 1000);
+          el.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+        }, 1000);
+      } else {
+        clearInterval(slipTimer);
+      }
+    }
+
+    // campaign upload (drop zones are real buttons; drag stays optional)
     const campZone = document.getElementById('campZone');
     const campFile = document.getElementById('campFile');
     campZone.addEventListener('click', () => campFile.click());
-    campZone.addEventListener('dragover', (e) => { e.preventDefault(); campZone.classList.add('border-blue-500', 'bg-slate-700'); });
-    campZone.addEventListener('dragleave', () => campZone.classList.remove('border-blue-500', 'bg-slate-700'));
+    campZone.addEventListener('dragover', (e) => { e.preventDefault(); campZone.classList.add('dragging'); });
+    campZone.addEventListener('dragleave', () => campZone.classList.remove('dragging'));
     campZone.addEventListener('drop', (e) => {
-      e.preventDefault();
-      campZone.classList.remove('border-blue-500', 'bg-slate-700');
+      e.preventDefault(); campZone.classList.remove('dragging');
       if (e.dataTransfer.files.length) uploadCampaign(e.dataTransfer.files[0]);
     });
     campFile.addEventListener('change', () => { if (campFile.files.length) uploadCampaign(campFile.files[0]); });
@@ -530,8 +582,10 @@
         const d = await res.json();
         if (!res.ok) throw new Error(d.detail || 'Upload failed');
         currentCampaignId = d.campaign_id;
-        const probText = d.problems && d.problems.length ? `<p class="text-yellow-300 mt-2 text-xs">⚠️ ${d.problems.length} row(s) skipped: ${d.problems[0]}</p>` : '';
-        document.getElementById('camp-summary-text').innerHTML = `<b>${d.total} customer(s)</b> ready to call from <i>${file.name}</i>.${probText}`;
+        const skipped = d.problems?.length
+          ? ` <span class="text-rust">${fmtNum.format(d.problems.length)} row(s) skipped — ${escapeHtml(d.problems[0])}</span>` : '';
+        document.getElementById('camp-summary-text').innerHTML =
+          `<b class="num">${fmtNum.format(d.total)}</b> customer(s) ready to call from <i>${escapeHtml(file.name)}</i>.${skipped}`;
         document.getElementById('camp-summary').classList.remove('hidden');
       } catch (e) { showCampError(e.message); }
     }
@@ -545,8 +599,7 @@
     async function startCampaign() {
       if (!currentCampaignId) return;
       const res = await fetch(`${API_BASE}/api/campaigns/${currentCampaignId}/start`, { method: 'POST', headers: authHeaders });
-      const d = await res.json();
-      if (!res.ok) { showCampError(d.detail || 'Could not start'); return; }
+      if (!res.ok) { showCampError((await res.json()).detail || 'Could not start'); return; }
       document.getElementById('camp-progress').classList.remove('hidden');
       pollProgress();
     }
@@ -556,18 +609,14 @@
       progressTimer = setInterval(async () => {
         if (!currentCampaignId) { clearInterval(progressTimer); return; }
         try {
-          const res = await fetch(`${API_BASE}/api/campaigns/${currentCampaignId}`, { headers: authHeaders });
-          if (!res.ok) { clearInterval(progressTimer); return; }
-          const d = await res.json();
+          const d = await (await fetch(`${API_BASE}/api/campaigns/${currentCampaignId}`, { headers: authHeaders })).json();
           document.getElementById('camp-bar').style.width = `${Math.round(100 * d.done / Math.max(d.total, 1))}%`;
-          document.getElementById('camp-status-text').textContent = `${d.done}/${d.total} · ${d.failed} failed`;
-          document.getElementById('camp-status-icon').textContent = d.status === 'running' ? '📞' : (d.status === 'completed' ? '✅' : '🚀');
+          document.getElementById('camp-status-text').textContent = `${fmtNum.format(d.done)} of ${fmtNum.format(d.total)} · ${fmtNum.format(d.failed)} failed`;
           document.getElementById('camp-rows').innerHTML = d.calls.map(c => `
-            <div class="flex justify-between items-center bg-slate-700 rounded-lg px-4 py-2 text-sm">
-              <span><b>${escapeHtml(c.name || 'Customer')}</b> <span class="text-gray-400 font-mono text-xs">${escapeHtml(c.number)}</span></span>
-              <span>${c.status === 'done' ? '✅' : c.status === 'calling' ? '📞 Calling' : c.status === 'failed' ? '❌' : '🕐 Waiting'} <span class="text-xs text-gray-400">${escapeHtml(c.detail || '')}</span></span>
-            </div>
-          `).join('');
+            <div class="flex justify-between items-center rule-b pb-2 text-sm gap-3">
+              <span class="min-w-0 truncate"><b>${escapeHtml(c.name || 'Customer')}</b> <span class="text-soft num text-xs">${escapeHtml(c.number)}</span></span>
+              <span class="text-xs text-soft shrink-0">${c.status === 'calling' ? 'Calling…' : c.status === 'done' ? 'Done' : c.status === 'failed' ? escapeHtml(c.detail || 'Failed') : 'Waiting'}</span>
+            </div>`).join('');
           if (d.status !== 'running') { clearInterval(progressTimer); loadOutboundHistory(); }
         } catch (e) { clearInterval(progressTimer); }
       }, 2500);
@@ -578,40 +627,68 @@
     }
 
     async function loadOutboundHistory() {
-      try {
-        const res = await fetch(`${API_BASE}/api/outbound`, { headers: authHeaders });
-        if (!res.ok) return;
-        const d = await res.json();
-        const el = document.getElementById('outbound-list');
-        if (!d.total) { el.innerHTML = '<p class="text-gray-400 text-center py-6">No outbound calls yet.</p>'; return; }
-        el.innerHTML = d.calls.map(c => `
-          <div class="flex justify-between items-center bg-slate-700 rounded-lg px-4 py-3 text-sm">
-            <span><b>${escapeHtml(c.name || 'Customer')}</b> <span class="font-mono text-xs text-gray-400">${escapeHtml(c.number)}</span>${c.info ? ` <span class="text-xs text-gray-500">· ${escapeHtml(c.info)}</span>` : ''}</span>
-            <span class="text-xs">${c.status === 'calling' ? '📞' : c.status === 'failed' ? '❌' : '🕐'} ${escapeHtml(c.status)} <span class="text-gray-500">${escapeHtml(c.detail || '')}</span></span>
+      const res = await fetch(`${API_BASE}/api/outbound`, { headers: authHeaders });
+      if (!res.ok) return;
+      const d = await res.json();
+      const el = document.getElementById('outbound-list');
+      if (!d.total) {
+        el.innerHTML = '<p class="text-soft text-sm py-4">No calls yet — dial one above and it will show up here.</p>';
+        return;
+      }
+      // this list is a log, not a progress board — once a call is over the time
+      // it happened is the useful fact, not the word "done". A failure reason is
+      // a sentence, so it gets its own line rather than shoving the row wide.
+      const when = c => c.called_at ? fmtDate.format(new Date(c.called_at)) : '';
+      el.innerHTML = d.calls.map(c => {
+        const failed = c.status === 'failed';
+        const tail = c.status === 'calling' ? 'Calling…'
+          : failed ? escapeHtml(c.detail || 'Failed')
+          : c.status === 'done' && when(c) ? escapeHtml(when(c))
+          : 'Not called yet';
+        return `
+        <div class="rule-b pb-2 text-sm">
+          <div class="flex justify-between items-baseline gap-3">
+            <span class="min-w-0 truncate"><b>${escapeHtml(c.name || 'Customer')}</b> <span class="text-soft num text-xs">${escapeHtml(c.number)}</span>${c.info ? `<span class="text-soft text-xs"> · ${escapeHtml(c.info)}</span>` : ''}</span>
+            ${failed ? '' : `<span class="text-xs text-soft shrink-0 num">${tail}</span>`}
           </div>
-        `).join('');
-      } catch (e) {}
+          ${failed ? `<p class="text-xs text-rust mt-1">${tail}</p>` : ''}
+        </div>`;
+      }).join('');
+
+      // keep the live slip honest: it ticks only while a call is genuinely up,
+      // then freezes on the final time so you can still read how long it ran
+      const slip = document.getElementById('call-slip');
+      const live = d.calls.find(c => c.status === 'calling');
+      if (live) showSlip(live.number, live.name || '', true);
+      else if (slip.dataset.live === 'true') {
+        showSlip(document.getElementById('slip-number').textContent,
+                 document.getElementById('slip-name').textContent, false);
+      } else {
+        slip.classList.add('hidden');
+        clearInterval(slipTimer);
+      }
     }
 
-    // ── Wizard ────────────────────────────────────────────
+    // ── wizard ────────────────────────────────────────────
     let selectedCat = null;
     const STEP_NAMES = ['Category', 'Your business', 'What you offer', 'Finish'];
 
     function initWizard() {
       document.querySelectorAll('.cat-card').forEach(card => {
         card.addEventListener('click', () => {
-          document.querySelectorAll('.cat-card').forEach(c => c.classList.remove('selected'));
+          document.querySelectorAll('.cat-card').forEach(c => { c.classList.remove('selected'); c.setAttribute('aria-pressed', 'false'); });
           card.classList.add('selected');
+          card.setAttribute('aria-pressed', 'true');
           selectedCat = card.dataset.cat;
           document.getElementById('btn-step1').disabled = false;
           const hints = {
             store: 'e.g. Toor dal Rs 45/kg, Sugar Rs 42/kg, home delivery above Rs 500',
             showroom: 'e.g. BMW 3 Series Rs 62 lakh, X1 Rs 49 lakh, free test drive with 1 day notice',
-            finance: 'e.g. Personal loan 10.5% p.a., gold loan 9%, documents needed: Aadhaar + PAN',
+            finance: 'e.g. Personal loan 10.5% p.a., gold loan 9%, documents: Aadhaar + PAN',
             agency: 'e.g. Wedding photography Rs 50,000, social media handling Rs 15,000/month',
-            clinic: 'e.g. General consultation Rs 500, dental cleaning Rs 1,500, open Mon-Sat 10am-8pm',
+            clinic: 'e.g. Consultation Rs 500, dental cleaning Rs 1,500, open Mon–Sat 10am–8pm',
             realestate: 'e.g. 2BHK rent Rs 25,000/month, 3BHK sale Rs 85 lakh, site visits on weekends',
-            other: 'e.g. Main services, rates, timing, anything a caller may ask'
+            other: 'e.g. Main services, rates, timing — anything a caller may ask',
           };
           document.getElementById('s3-hint').textContent = hints[selectedCat] || 'List your products or services with prices, one per line';
         });
@@ -620,47 +697,39 @@
     }
 
     function renderDots(active) {
-      const el = document.getElementById('progress-dots');
-      el.innerHTML = STEP_NAMES.map((n, i) =>
-        `<span class="text-xs ${i + 1 === active ? 'text-white font-bold' : 'text-gray-500'}">${i + 1}. ${n}</span>`
-      ).join('<span class="text-gray-600 mx-1">→</span>');
+      document.getElementById('progress-dots').innerHTML = STEP_NAMES.map((n, i) =>
+        `<span class="${i + 1 === active ? 'text-ink font-semibold' : ''}">${i + 1}. ${n}</span>`).join('<span class="text-rule">→</span>');
     }
 
     function gotoStep(n) {
       if (n === 2 && !selectedCat) { alert('Pick a category first'); return; }
-      for (let i = 1; i <= 4; i++) {
-        document.getElementById(`step-${i}`).classList.toggle('hidden', i !== n);
-      }
+      for (let i = 1; i <= 4; i++) document.getElementById(`step-${i}`).classList.toggle('hidden', i !== n);
       renderDots(n);
     }
 
-    // File upload
     const dropZone = document.getElementById('dropZone');
     const fileInput = document.getElementById('fileInput');
     const fileHint = document.getElementById('fileHint');
     const errorMsg = document.getElementById('errorMsg');
     dropZone.addEventListener('click', () => fileInput.click());
-    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('border-blue-500', 'bg-slate-700'); });
-    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('border-blue-500', 'bg-slate-700'));
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragging'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragging'));
     dropZone.addEventListener('drop', (e) => {
-      e.preventDefault();
-      dropZone.classList.remove('border-blue-500', 'bg-slate-700');
+      e.preventDefault(); dropZone.classList.remove('dragging');
       if (e.dataTransfer.files.length) { fileInput.files = e.dataTransfer.files; updateFileHint(); }
     });
     fileInput.addEventListener('change', updateFileHint);
     function updateFileHint() {
-      if (fileInput.files.length) {
-        const f = fileInput.files[0];
-        fileHint.textContent = `✓ ${f.name} (${(f.size / 1024).toFixed(1)} KB)`;
-        fileHint.classList.add('text-green-400');
-      }
+      if (!fileInput.files.length) return;
+      const f = fileInput.files[0];
+      fileHint.textContent = `${f.name} — ${(f.size / 1024).toFixed(1)} KB attached`;
+      fileHint.classList.add('text-ledger');
     }
 
-    // Submit wizard
     async function submitWizard() {
       errorMsg.classList.add('hidden');
       const name = document.getElementById('w-name').value.trim();
-      if (!name) { showError('Please tell us your business name (step 2).'); gotoStep(2); return; }
+      if (!name) { showError('Tell us your business name in step 2.'); gotoStep(2); return; }
 
       const btn = document.getElementById('submitBtn');
       const btnText = document.getElementById('btnText');
@@ -680,24 +749,25 @@
       try {
         const res = await fetch(`${API_BASE}/api/business`, { method: 'POST', headers: authHeaders, body: fd });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || 'Something went wrong.');
+        if (!res.ok) throw new Error(data.detail || 'Something went wrong — try again.');
         document.getElementById('r-name').textContent = data.name;
         document.getElementById('r-lang').textContent = getLanguageName(data.language);
         document.getElementById('r-id').textContent = data.business_id;
         document.getElementById('result-wrap').classList.remove('hidden');
-        document.getElementById('result-wrap').scrollIntoView({ behavior: 'smooth' });
+        document.getElementById('result-wrap').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         loadInsights();
+        loadBusinessChip();
       } catch (e) {
         showError(e.message);
       } finally {
         btn.disabled = false;
-        btnText.textContent = 'Create My Voice Agent';
+        btnText.textContent = 'Create my voice agent';
       }
     }
 
     function showError(msg) { errorMsg.textContent = msg; errorMsg.classList.remove('hidden'); }
 
-    // ── Insights (CRM) ────────────────────────────────────
+    // ── insights ──────────────────────────────────────────
     async function loadInsights() {
       try {
         const [anaR, leadsR, callsR] = await Promise.all([
@@ -705,94 +775,114 @@
           fetch(`${API_BASE}/api/leads`, { headers: authHeaders }),
           fetch(`${API_BASE}/api/calls`, { headers: authHeaders }),
         ]);
-        if (anaR.ok) {
-          const a = await anaR.json();
-          document.getElementById('i-total-calls').textContent = a.total_calls ?? 0;
+        const a = anaR.ok ? await anaR.json() : {};
+        const leads = leadsR.ok ? (await leadsR.json()).leads || [] : [];
+        const calls = callsR.ok ? (await callsR.json()).calls || [] : [];
+
+        document.getElementById('i-total-calls').textContent = fmtNum.format(a.total_calls ?? 0);
+        document.getElementById('i-total-leads').textContent = fmtNum.format(leads.length);
+        document.getElementById('i-booked').textContent = fmtNum.format(leads.filter(l => l.scheduled_for).length);
+        document.getElementById('i-followup').textContent = fmtNum.format(leads.filter(l => l.caller_number).length);
+
+        // hero = the next thing to do, not a pile of numbers
+        const waiting = leads.filter(l => l.status === 'new' && l.caller_number).length;
+        const noNumber = leads.filter(l => l.status === 'new' && !l.caller_number).length;
+        const hero = document.getElementById('insight-hero');
+        const sub = document.getElementById('insight-sub');
+        if (waiting > 0) {
+          hero.textContent = `${fmtNum.format(waiting)} caller${waiting > 1 ? 's' : ''} waiting for a callback`;
+          sub.textContent = 'They told Meera what they want. Call them back while it’s warm.';
+        } else if (noNumber > 0) {
+          hero.textContent = `${fmtNum.format(noNumber)} caller${noNumber > 1 ? 's' : ''} left no number`;
+          sub.textContent = 'There is nobody to call back — close them off when you are done with them.';
+        } else if (leads.length) {
+          hero.textContent = 'Every caller is handled';
+          sub.textContent = 'Nothing is waiting on you right now.';
+        } else if (calls.length) {
+          hero.textContent = `${fmtNum.format(calls.length)} call${calls.length > 1 ? 's' : ''} so far, no leads yet`;
+          sub.textContent = 'Check the transcripts below — leads appear here once someone shows interest.';
+        } else {
+          hero.textContent = 'Your first call starts here';
+          sub.textContent = 'Add a number in Call customers, or try the agent yourself in Talk to agent.';
         }
-        let leads = [];
-        if (leadsR.ok) {
-          const d = await leadsR.json();
-          leads = d.leads || [];
-          document.getElementById('i-total-leads').textContent = leads.length;
-          document.getElementById('i-booked').textContent = leads.filter(l => l.scheduled_for).length;
-          document.getElementById('i-followup').textContent = leads.filter(l => l.caller_number).length;
-          renderLeads(leads);
-        }
-        if (callsR.ok) {
-          const d = await callsR.json();
-          renderCalls(d.calls || []);
-        }
+        renderLeads(leads);
+        renderCalls(calls);
       } catch (e) { console.error('Insights load failed:', e); }
     }
 
     function renderLeads(leads) {
       const el = document.getElementById('leads-list');
       if (!leads.length) {
-        el.innerHTML = '<p class="text-gray-400 text-center py-6">No interested callers yet. When someone calls and shows interest, their details appear here automatically.</p>';
+        el.innerHTML = '<p class="text-soft text-sm py-4">No interested callers yet. Anyone who shows interest during a call lands here automatically.</p>';
         return;
       }
-      const intentIcons = { pricing: '💰', test_drive: '🚗', appointment: '📅', visit: '🏠', info: 'ℹ️', complaint: '⚠️', other: '📞' };
+      // the intent is already a word — an emoji beside it says nothing twice
+      const INTENT = s => escapeHtml((s || 'other').replace(/_/g, ' ').toUpperCase());
       el.innerHTML = leads.map(l => `
-        <div class="bg-slate-700 border border-slate-600 rounded-lg p-4">
+        <article class="bg-raised border border-rule rounded-lg p-4">
           <div class="flex flex-wrap justify-between items-start gap-2">
-            <div>
-              <p class="font-bold">${escapeHtml(l.caller_name || 'Unnamed caller')} <span class="ml-2 text-lg">${intentIcons[l.intent] || '📞'} <span class="text-xs text-gray-300 capitalize">${escapeHtml((l.intent || '').replace('_',' '))}</span></span></p>
-              <p class="text-sm text-blue-300 font-mono">${l.caller_number ? '📱 ' + escapeHtml(l.caller_number) : '<span class="text-gray-400">no number taken</span>'}</p>
+            <div class="min-w-0">
+              <p class="font-semibold">${escapeHtml(l.caller_name || 'Unnamed caller')}
+                <span class="text-xs text-soft">${INTENT(l.intent)}</span></p>
+              <p class="text-sm num">${l.caller_number ? escapeHtml(l.caller_number) : '<span class="text-soft text-xs">no number taken</span>'}</p>
             </div>
             <div class="flex items-center gap-2">
-              <select onchange="setLeadStatus('${l.id}', this.value)" class="bg-slate-600 border border-slate-500 rounded text-xs px-2 py-1">
-                ${['new','contacted','converted','closed'].map(s => `<option value="${s}" ${l.status === s ? 'selected' : ''}>${s}</option>`).join('')}
+              <label class="sr-only" for="lead-status-${escapeHtml(l.id)}">Status for ${escapeHtml(l.caller_name || 'this caller')}</label>
+              <select id="lead-status-${escapeHtml(l.id)}" onchange="setLeadStatus('${escapeHtml(l.id)}', this.value)" class="bg-paper border border-rule rounded px-2 py-1 text-xs">
+                ${['new', 'contacted', 'converted', 'closed'].map(s => `<option value="${s}" ${l.status === s ? 'selected' : ''}>${s[0].toUpperCase() + s.slice(1)}</option>`).join('')}
               </select>
-              <span class="text-xs text-gray-400">${new Date(l.created_at).toLocaleString()}</span>
+              <span class="text-xs text-soft num">${fmtDate.format(new Date(l.created_at))}</span>
             </div>
           </div>
-          <p class="text-sm text-gray-300 mt-2">💬 ${escapeHtml(l.interest || '—')}</p>
-          ${l.scheduled_for ? `<p class="text-sm text-green-300 mt-1">🗓️ Booked: ${escapeHtml(l.scheduled_for)}</p>` : ''}
-          ${l.notes ? `<p class="text-xs text-gray-400 mt-1">${escapeHtml(l.notes)}</p>` : ''}
-        </div>
-      `).join('');
+          ${l.interest ? `<p class="text-sm text-soft mt-2">${escapeHtml(l.interest)}</p>` : ''}
+          ${l.scheduled_for ? `<p class="text-sm text-ledger mt-1">Booked: ${escapeHtml(l.scheduled_for)}</p>` : ''}
+          ${l.notes ? `<p class="text-xs text-soft mt-1">${escapeHtml(l.notes)}</p>` : ''}
+        </article>`).join('');
     }
 
     async function setLeadStatus(id, status) {
-      await fetch(`${API_BASE}/api/leads/${id}`, {
-        method: 'PATCH',
-        headers: { ...authHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status })
+      const res = await fetch(`${API_BASE}/api/leads/${id}`, {
+        method: 'PATCH', headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
       });
+      if (!res.ok) showOneResult('Could not save that status — try again.');
     }
 
     function renderCalls(calls) {
       const el = document.getElementById('calls-list');
       if (!calls.length) {
-        el.innerHTML = '<p class="text-gray-400 text-center py-6">No calls yet. Every call your agent takes will show up here with the full conversation.</p>';
+        el.innerHTML = '<p class="text-soft text-sm py-4">No calls yet. Every conversation your agent takes will show up here.</p>';
         return;
       }
-      el.innerHTML = calls.map(c => `
-        <div class="bg-slate-700 border border-slate-600 rounded-lg p-4">
-          <div class="flex justify-between items-center cursor-pointer" onclick="this.nextElementSibling.classList.toggle('hidden')">
-            <p class="font-semibold"><i class="fas fa-phone text-blue-400 mr-2"></i>Call on ${new Date(c.start_time).toLocaleString()}</p>
-            <span class="text-xs text-gray-400">${c.turns.length} exchanges · click to view</span>
-          </div>
-          <div class="hidden mt-3 space-y-2 border-t border-slate-600 pt-3">
+      el.innerHTML = calls.map((c, i) => `
+        <article class="bg-raised border border-rule rounded-lg">
+          <button onclick="toggleCallPanel('c${i}')" aria-expanded="false" aria-controls="c${i}"
+            class="w-full flex justify-between items-center gap-3 px-4 py-3 text-left">
+            <span class="text-sm"><b>${fmtDate.format(new Date(c.start_time))}</b></span>
+            <span class="text-xs text-soft num">${fmtNum.format(c.turns.length)} exchanges · view</span>
+          </button>
+          <div id="c${i}" class="hidden px-4 pb-4 space-y-2 border-t border-rule">
             ${c.turns.map(t => `
-              <div class="text-sm">
-                <p class="text-blue-300 font-semibold"> Caller: ${escapeHtml(t.caller)}</p>
-                <p class="text-gray-300 ml-4"> Agent: ${escapeHtml(t.agent)}</p>
-              </div>
-            `).join('')}
+              <div class="text-sm pt-2">
+                <p class="font-medium">Caller: ${escapeHtml(t.caller)}</p>
+                <p class="text-soft pl-3 border-l-2 border-rule">Meera: ${escapeHtml(t.agent)}</p>
+              </div>`).join('')}
           </div>
-        </div>
-      `).join('');
+        </article>`).join('');
+    }
+
+    function toggleCallPanel(id) {
+      const panel = document.getElementById(id);
+      const btn = panel.previousElementSibling;
+      const open = panel.classList.toggle('hidden');
+      btn.setAttribute('aria-expanded', String(!open));
     }
 
     function escapeHtml(s) {
-      return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     }
 
-    function getLanguageName(code) {
-      const map = { gu: 'Gujarati', hi: 'Hindi', en: 'English' };
-      return map[code] || code;
-    }
+    function getLanguageName(code) { return { gu: 'Gujarati', hi: 'Hindi', en: 'English' }[code] || code; }
   </script>
 </body>
 </html>

@@ -705,6 +705,40 @@ def test_twilio_status_ignores_noncompleted():
     assert len(leads) == 0
 
 
+def test_outbound_closes_orphaned_calling_rows():
+    """A 'calling' row whose callback never arrived must not stay 'calling' forever.
+
+    The console decides whether to tick its live-call slip off status, so a row
+    stranded by a lost callback would show a call from last week as still up.
+    """
+    from datetime import datetime, timedelta
+    import main
+    from database import SessionLocal
+    from models import OutboundCall
+
+    data = _make_user(name="Orphan Owner")
+    bid = _make_business(data["token"], name="Orphan Motors")["business_id"]
+
+    session = SessionLocal()
+    try:
+        session.add_all([
+            OutboundCall(id="freshcall", business_id=bid, caller_number="9000000001",
+                         status="calling", called_at=datetime.now()),
+            OutboundCall(id="stalecall", business_id=bid, caller_number="9000000002",
+                         status="calling",
+                         called_at=datetime.now() - timedelta(seconds=main.CALL_WINDOW_SECONDS + 60)),
+        ])
+        session.commit()
+    finally:
+        session.close()
+
+    calls = client.get("/api/outbound", headers=_auth(data["token"])).json()["calls"]
+    by_id = {c["id"]: c for c in calls}
+    assert by_id["stalecall"]["status"] == "done"
+    assert "no status update" in by_id["stalecall"]["detail"]
+    assert by_id["freshcall"]["status"] == "calling", "a call inside the window must stay live"
+
+
 if __name__ == "__main__":
     import pytest
     pytest.main([__file__, "-v"])
