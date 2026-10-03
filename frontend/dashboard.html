@@ -564,8 +564,8 @@
           document.getElementById('camp-status-icon').textContent = d.status === 'running' ? '📞' : (d.status === 'completed' ? '✅' : '🚀');
           document.getElementById('camp-rows').innerHTML = d.calls.map(c => `
             <div class="flex justify-between items-center bg-slate-700 rounded-lg px-4 py-2 text-sm">
-              <span><b>${c.name || 'Customer'}</b> <span class="text-gray-400 font-mono text-xs">${c.number}</span></span>
-              <span>${c.status === 'done' ? '✅' : c.status === 'calling' ? '📞 Calling' : c.status === 'failed' ? '❌' : '🕐 Waiting'} <span class="text-xs text-gray-400">${c.detail || ''}</span></span>
+              <span><b>${escapeHtml(c.name || 'Customer')}</b> <span class="text-gray-400 font-mono text-xs">${escapeHtml(c.number)}</span></span>
+              <span>${c.status === 'done' ? '✅' : c.status === 'calling' ? '📞 Calling' : c.status === 'failed' ? '❌' : '🕐 Waiting'} <span class="text-xs text-gray-400">${escapeHtml(c.detail || '')}</span></span>
             </div>
           `).join('');
           if (d.status !== 'running') { clearInterval(progressTimer); loadOutboundHistory(); }
@@ -586,8 +586,8 @@
         if (!d.total) { el.innerHTML = '<p class="text-gray-400 text-center py-6">No outbound calls yet.</p>'; return; }
         el.innerHTML = d.calls.map(c => `
           <div class="flex justify-between items-center bg-slate-700 rounded-lg px-4 py-3 text-sm">
-            <span><b>${c.name || 'Customer'}</b> <span class="font-mono text-xs text-gray-400">${c.number}</span>${c.info ? ` <span class="text-xs text-gray-500">· ${c.info}</span>` : ''}</span>
-            <span class="text-xs">${c.status === 'calling' ? '📞' : c.status === 'failed' ? '❌' : '🕐'} ${c.status} <span class="text-gray-500">${c.detail || ''}</span></span>
+            <span><b>${escapeHtml(c.name || 'Customer')}</b> <span class="font-mono text-xs text-gray-400">${escapeHtml(c.number)}</span>${c.info ? ` <span class="text-xs text-gray-500">· ${escapeHtml(c.info)}</span>` : ''}</span>
+            <span class="text-xs">${c.status === 'calling' ? '📞' : c.status === 'failed' ? '❌' : '🕐'} ${escapeHtml(c.status)} <span class="text-gray-500">${escapeHtml(c.detail || '')}</span></span>
           </div>
         `).join('');
       } catch (e) {}
@@ -736,8 +736,8 @@
         <div class="bg-slate-700 border border-slate-600 rounded-lg p-4">
           <div class="flex flex-wrap justify-between items-start gap-2">
             <div>
-              <p class="font-bold">${l.caller_name || 'Unnamed caller'} <span class="ml-2 text-lg">${intentIcons[l.intent] || '📞'} <span class="text-xs text-gray-300 capitalize">${(l.intent || '').replace('_',' ')}</span></span></p>
-              <p class="text-sm text-blue-300 font-mono">${l.caller_number ? '📱 ' + l.caller_number : '<span class="text-gray-400">no number taken</span>'}</p>
+              <p class="font-bold">${escapeHtml(l.caller_name || 'Unnamed caller')} <span class="ml-2 text-lg">${intentIcons[l.intent] || '📞'} <span class="text-xs text-gray-300 capitalize">${escapeHtml((l.intent || '').replace('_',' '))}</span></span></p>
+              <p class="text-sm text-blue-300 font-mono">${l.caller_number ? '📱 ' + escapeHtml(l.caller_number) : '<span class="text-gray-400">no number taken</span>'}</p>
             </div>
             <div class="flex items-center gap-2">
               <select onchange="setLeadStatus('${l.id}', this.value)" class="bg-slate-600 border border-slate-500 rounded text-xs px-2 py-1">
@@ -746,9 +746,9 @@
               <span class="text-xs text-gray-400">${new Date(l.created_at).toLocaleString()}</span>
             </div>
           </div>
-          <p class="text-sm text-gray-300 mt-2">💬 ${l.interest || '—'}</p>
-          ${l.scheduled_for ? `<p class="text-sm text-green-300 mt-1">🗓️ Booked: ${l.scheduled_for}</p>` : ''}
-          ${l.notes ? `<p class="text-xs text-gray-400 mt-1">${l.notes}</p>` : ''}
+          <p class="text-sm text-gray-300 mt-2">💬 ${escapeHtml(l.interest || '—')}</p>
+          ${l.scheduled_for ? `<p class="text-sm text-green-300 mt-1">🗓️ Booked: ${escapeHtml(l.scheduled_for)}</p>` : ''}
+          ${l.notes ? `<p class="text-xs text-gray-400 mt-1">${escapeHtml(l.notes)}</p>` : ''}
         </div>
       `).join('');
     }

@@ -48,7 +48,7 @@ from database import create_campaign, create_single_outbound, get_campaign_with_
 from auth import get_current_user, hash_password, verify_password, create_token
 from models import User, Lead, Campaign, OutboundCall
 import phone_service
-from phone_service import place_call, vonage_configured, parse_call_list
+from phone_service import place_call, vonage_configured, twilio_configured, active_provider, parse_call_list
 from llm_service import extract_lead_info, generate_outbound_opener
 
 # LOGGING
@@ -86,7 +86,21 @@ app.mount("/audio", StaticFiles(directory=AUDIO_DIR), name="audio")
 VONAGE_API_KEY = os.getenv("VONAGE_API_KEY", "")
 VONAGE_API_SECRET = os.getenv("VONAGE_API_SECRET", "")
 VONAGE_PHONE_NUMBER = os.getenv("VONAGE_PHONE_NUMBER", "")
-PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://localhost:8000")
+def _public() -> str:
+    """
+    Public URL used in NCCO audio links and webhook URLs.
+    Precedence: runtime override file (written by make_call.py so a new
+    tunnel URL applies WITHOUT restarting the server) > .env > localhost.
+    """
+    override = os.path.join(os.path.dirname(os.path.abspath(__file__)), "public_url.txt")
+    try:
+        with open(override, encoding="utf-8") as f:
+            val = f.read().strip()
+            if val:
+                return val
+    except OSError:
+        pass
+    return os.getenv("PUBLIC_BASE_URL", "http://localhost:8000")
 
 if VONAGE_API_KEY and VONAGE_API_SECRET:
     vonage_client = Vonage(Auth(api_key=VONAGE_API_KEY, api_secret=VONAGE_API_SECRET))
@@ -179,7 +193,7 @@ def _speech_input_action(business_id: str, lang_code: str) -> dict:
             "language": VONAGE_LANG_MAP.get(lang_code, "en-US"),
             "endOnSilence": 1.5,
         },
-        "eventUrl": [f"{PUBLIC_BASE_URL}/voice/event/{business_id}"],
+        "eventUrl": [f"{_public()}/voice/event/{business_id}"],
         "eventMethod": "POST",
     }
 
@@ -323,7 +337,7 @@ async def create_business(
         business_id = str(uuid.uuid4())[:8]
         create_business_record(db, business_id, user.id, name, language, knowledge_base)
         
-        webhook_url = f"{PUBLIC_BASE_URL}/voice/answer/{business_id}"
+        webhook_url = f"{_public()}/voice/answer/{business_id}"
         logger.info(f"Business created: {business_id} - {name}")
         
         return {
@@ -469,8 +483,10 @@ DIAL_GAP_SECONDS = 6   # breathing room between calls in a campaign
 DIALER_STOP = {}       # campaign_id -> True when user cancels
 
 
-def _answer_url_for(business_id: str) -> str:
-    return f"{PUBLIC_BASE_URL}/voice/answer/{business_id}"
+def _answer_url_for(business_id: str, provider: str = None) -> str:
+    """Voice answer URL for the active telephony provider (TwiML or NCCO)."""
+    prefix = "twilio" if (provider or active_provider()) == "twilio" else "voice"
+    return f"{_public()}/{prefix}/answer/{business_id}"
 
 
 def _outbound_dict(oc: OutboundCall) -> dict:
@@ -488,7 +504,7 @@ def _outbound_dict(oc: OutboundCall) -> dict:
 @app.get("/api/phone/status", tags=["Outbound"])
 async def phone_status(user: User = Depends(get_current_user)):
     """Is phone calling connected? (plain-language answer for the UI)"""
-    return {"connected": vonage_configured()}
+    return {"connected": vonage_configured() or twilio_configured(), "provider": active_provider()}
 
 
 @app.post("/api/call-now/{business_id}", tags=["Outbound"])
@@ -512,7 +528,9 @@ async def call_now(
         raise HTTPException(400, "That doesn't look like a valid phone number")
     
     oc = create_single_outbound(db, business_id, number, (body.get("name") or "").strip() or None, (body.get("info") or "").strip() or None)
-    result = place_call(number, _answer_url_for(business_id))
+    provider = active_provider()
+    cb = f"{_public()}/twilio/status/{business_id}" if provider == "twilio" else None
+    result = place_call(number, _answer_url_for(business_id, provider), status_callback=cb)
     mark_outbound(
         oc,
         "calling" if result["ok"] else "failed",
@@ -536,11 +554,12 @@ class _Dialer:
             campaign.status = "running"
             db.commit()
             answer_url = _answer_url_for(business_id)
+            status_cb = f"{_public()}/twilio/status/{business_id}" if active_provider() == "twilio" else None
             
             # Simulator mode: when telephony isn't fully wired (no rented number),
             # run the same campaign with a simulated customer so the owner still
             # sees the whole flow — opener, replies, transcripts, leads. Clearly labeled.
-            sim_mode = not vonage_configured() or not os.getenv("VONAGE_PHONE_NUMBER")
+            sim_mode = not (twilio_configured() or vonage_configured())
             if sim_mode:
                 logger.info(f"Campaign {campaign_id}: running in SIMULATOR mode (no Vonage number)")
             
@@ -600,7 +619,7 @@ class _Dialer:
                 
                 mark_outbound(oc, "calling", detail="Dialing…")
                 db.commit()
-                result = place_call(oc.caller_number, answer_url)
+                result = place_call(oc.caller_number, answer_url, status_callback=status_cb)
                 mark_outbound(
                     oc,
                     "calling" if result["ok"] else "failed",
@@ -882,7 +901,7 @@ async def voice_answer(business_id: str, db: Session = Depends(get_db)):
     # one consistent human voice for the whole call.
     greeting_audio = await synthesize_speech(greeting, business.language)
     ncco = [
-        {"action": "play", "url": [f"{PUBLIC_BASE_URL}/audio/{greeting_audio}"]},
+        {"action": "play", "url": [f"{_public()}/audio/{greeting_audio}"]},
         _speech_input_action(business_id, business.language),
     ]
     
@@ -929,12 +948,12 @@ async def outbound_answer(outbound_id: str, db: Session = Depends(get_db)):
     except Exception as e:
         logger.warning(f"Outbound opener save failed: {e}")
     ncco = [
-        {"action": "play", "url": [f"{PUBLIC_BASE_URL}/audio/{opener_audio}"]},
+        {"action": "play", "url": [f"{_public()}/audio/{opener_audio}"]},
         {
             "action": "input",
             "type": ["speech"],
             "speech": {"language": VONAGE_LANG_MAP.get(biz.language, "en-US"), "endOnSilence": 1.5},
-            "eventUrl": [f"{PUBLIC_BASE_URL}/voice/event/{biz.id}?oc={oc.id}"],
+            "eventUrl": [f"{_public()}/voice/event/{biz.id}?oc={oc.id}"],
             "eventMethod": "POST",
         },
     ]
@@ -1004,7 +1023,7 @@ async def voice_event(business_id: str, request: Request, db: Session = Depends(
                 business.language,
             )
             ncco = [
-                {"action": "play", "url": [f"{PUBLIC_BASE_URL}/audio/{farewell_audio}"]},
+                {"action": "play", "url": [f"{_public()}/audio/{farewell_audio}"]},
             ]
             return Response(content=json.dumps(ncco), media_type="application/json")
         
@@ -1013,7 +1032,7 @@ async def voice_event(business_id: str, request: Request, db: Session = Depends(
             business.language
         )
         ncco = [
-            {"action": "play", "url": [f"{PUBLIC_BASE_URL}/audio/{reprompt_audio}"]},
+            {"action": "play", "url": [f"{_public()}/audio/{reprompt_audio}"]},
             _speech_input_action(business_id, business.language),
         ]
         return Response(content=json.dumps(ncco), media_type="application/json")
@@ -1037,7 +1056,7 @@ async def voice_event(business_id: str, request: Request, db: Session = Depends(
     
     # Synthesize speech (Edge TTS - free, async, sanitized for human delivery)
     audio_filename = await synthesize_speech(response_text, business.language)
-    audio_url = f"{PUBLIC_BASE_URL}/audio/{audio_filename}"
+    audio_url = f"{_public()}/audio/{audio_filename}"
     
     # Play the answer, then keep listening for the next question
     ncco = [
@@ -1046,6 +1065,190 @@ async def voice_event(business_id: str, request: Request, db: Session = Depends(
     ]
     
     return Response(content=json.dumps(ncco), media_type="application/json")
+
+# ============================================================================
+# TWILIO (free-trial path) — TwiML twins of the Vonage NCCO routes above.
+# Same brain, same sessions, same lead pipeline; only the wire format differs.
+# ============================================================================
+
+TWILIO_LANG_ATTR = {"hi": "hi-IN", "gu": "gu-IN", "en": "en-US"}
+
+
+def _twiml_gather(business_id: str, language: str, oc_id: str = None) -> str:
+    action = f"{_public()}/twilio/event/{business_id}" + (f"?oc={oc_id}" if oc_id else "")
+    lang = TWILIO_LANG_ATTR.get(language, "en-US")
+    return (
+        f'<Gather input="speech" language="{lang}" speechTimeout="auto" '
+        f'action="{action}" method="POST" actionOnEmptyResult="true"/>'
+    )
+
+
+def _twiml_play(audio_filename: str) -> str:
+    return f"<Play>{_public()}/audio/{audio_filename}</Play>"
+
+
+@app.post("/twilio/answer/{business_id}", tags=["Voice"])
+async def twilio_answer(business_id: str, db: Session = Depends(get_db)):
+    """Twilio bridges here when a customer's phone rings — TwiML twin of /voice/answer"""
+    business = get_business_record(db, business_id)
+    if not business:
+        return Response(content="<Response><Hangup/></Response>", media_type="application/xml")
+
+    greetings = {
+        "hi": f"नमस्ते जी, {business.name} में आपका स्वागत है। मैं मीरा बात कर रही हूँ, बताइए मैं आपकी क्या मदद कर सकती हूँ?",
+        "gu": f"નમસ્તે જી, {business.name} માં આપનું સ્વાગત છે. હું મીરા બોલું છું, કહો જી, હું તમની શું મદદ કરી શકું?",
+        "en": f"Hello ji, welcome to {business.name}! This is Meera speaking — how can I help you today?",
+    }
+    greeting_audio = await synthesize_speech(greetings.get(business.language, greetings["en"]), business.language)
+    increment_call_count(db, business_id)
+    xml = "<Response>" + _twiml_play(greeting_audio) + _twiml_gather(business_id, business.language) + "</Response>"
+    return Response(content=xml, media_type="application/xml")
+
+
+@app.post("/twilio/outbound-answer/{outbound_id}", tags=["Voice"])
+async def twilio_outbound_answer(outbound_id: str, db: Session = Depends(get_db)):
+    """Twilio bridges here when WE call a customer — TwiML twin of /voice/outbound-answer"""
+    from llm_service import generate_outbound_opener
+
+    oc = db.query(OutboundCall).filter(OutboundCall.id == outbound_id).first()
+    biz = get_business_record(db, oc.business_id) if oc else None
+    if not oc or not biz:
+        return Response(content="<Response><Hangup/></Response>", media_type="application/xml")
+
+    opener = generate_outbound_opener(
+        business_name=biz.name,
+        knowledge_base=biz.knowledge_base,
+        language_code=biz.language,
+        customer_name=oc.caller_name,
+        customer_info=oc.info,
+    )
+    call_id = f"out-{oc.id}"
+    start_call(db, biz.id, call_id)
+    session_key = f"{biz.id}:oc-{oc.id}"
+    if session_key not in CALL_SESSIONS and len(CALL_SESSIONS) >= MAX_CALL_SESSIONS:
+        CALL_SESSIONS.pop(next(iter(CALL_SESSIONS)))
+    CALL_SESSIONS[session_key] = {"history": [{"role": "assistant", "content": opener}], "silences": 0}
+
+    opener_audio = await synthesize_speech(opener, biz.language)
+    try:
+        save_conversation(db, str(uuid.uuid4())[:12], call_id, "(outbound call — agent calling)", opener)
+    except Exception as e:
+        logger.warning(f"Outbound opener save failed: {e}")
+
+    xml = "<Response>" + _twiml_play(opener_audio) + _twiml_gather(biz.id, biz.language, oc.id) + "</Response>"
+    return Response(content=xml, media_type="application/xml")
+
+
+@app.post("/twilio/event/{business_id}", tags=["Voice"])
+async def twilio_event(business_id: str, request: Request, db: Session = Depends(get_db)):
+    """Twilio posts speech results here — TwiML twin of /voice/event"""
+    business = get_business_record(db, business_id)
+    if not business:
+        return Response(content="<Response><Hangup/></Response>", media_type="application/xml")
+
+    # Twilio sends form-encoded webhooks (accept JSON too, for tests)
+    payload = {}
+    try:
+        payload = dict(await request.form())
+    except Exception:
+        payload = {}
+    if not payload:
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+
+    customer_query = (payload.get("SpeechResult") or "").strip() if isinstance(payload, dict) else ""
+    if not customer_query and isinstance(payload, dict):
+        results = payload.get("speech_results") or []
+        if results and isinstance(results, list):
+            customer_query = (results[0] or {}).get("text", "") or ""
+    customer_query = (customer_query or "").strip()
+
+    call_uuid = (payload.get("CallSid") or payload.get("call_uuid") or payload.get("uuid") or "") if isinstance(payload, dict) else ""
+    oc_id = request.query_params.get("oc")
+    if oc_id:
+        session_key = f"{business_id}:oc-{oc_id}"
+        call_id = f"out-{oc_id}"
+        session = CALL_SESSIONS.setdefault(session_key, {"history": [], "silences": 0})
+    else:
+        session_key = f"{business_id}:{call_uuid}"
+        if session_key not in CALL_SESSIONS and len(CALL_SESSIONS) >= MAX_CALL_SESSIONS:
+            CALL_SESSIONS.pop(next(iter(CALL_SESSIONS)))
+        session = CALL_SESSIONS.setdefault(session_key, {"history": [], "silences": 0})
+        call_id = start_call(db, business_id, call_uuid)
+
+    def _reply(*parts: str) -> Response:
+        return Response(content="<Response>" + "".join(parts) + "</Response>", media_type="application/xml")
+
+    # Caller said nothing → reprompt; after 2 consecutive silences, wrap up warmly
+    if not customer_query:
+        session["silences"] = session.get("silences", 0) + 1
+        if session["silences"] >= 2:
+            if session["history"]:
+                try:
+                    info = extract_lead_info(session["history"])
+                    lead = create_lead_record(db, business_id, call_id, info)
+                    if lead:
+                        logger.info(f"Lead saved: {lead.caller_name} / {lead.caller_number} ({lead.intent})")
+                except Exception as e:
+                    logger.warning(f"Lead extraction failed: {e}")
+            complete_call(db, call_id)
+            CALL_SESSIONS.pop(session_key, None)
+            farewell_audio = await synthesize_speech(
+                FAREWELL_TEXTS.get(business.language, FAREWELL_TEXTS["en"]), business.language,
+            )
+            return _reply(_twiml_play(farewell_audio), "<Hangup/>")
+
+        reprompt_audio = await synthesize_speech(
+            REPROMPT_TEXTS.get(business.language, REPROMPT_TEXTS["en"]), business.language,
+        )
+        return _reply(_twiml_play(reprompt_audio), _twiml_gather(business_id, business.language, oc_id))
+
+    session["silences"] = 0
+
+    response_text = get_agent_response(
+        business_name=business.name,
+        knowledge_base=business.knowledge_base,
+        language_code=business.language,
+        customer_query=customer_query,
+        conversation_history=session["history"],
+    )
+    try:
+        save_conversation(db, str(uuid.uuid4())[:12], call_id, customer_query, response_text)
+    except Exception as e:
+        logger.warning(f"Conversation save failed: {e}")
+
+    audio_filename = await synthesize_speech(response_text, business.language)
+    return _reply(_twiml_play(audio_filename), _twiml_gather(business_id, business.language, oc_id))
+
+
+@app.post("/twilio/status/{business_id}", tags=["Voice"])
+async def twilio_status(business_id: str, request: Request, db: Session = Depends(get_db)):
+    """Twilio posts the final call status here — save the lead even when
+    the caller hangs up before the farewell (2-silence wrap-up never ran)"""
+    try:
+        payload = dict(await request.form())
+    except Exception:
+        payload = {}
+    call_status = (payload.get("CallStatus") or "").strip().lower()
+    call_sid = (payload.get("CallSid") or "").strip()
+    logger.info(f"Twilio call status: {call_status} (sid {call_sid[:16]}…)")
+
+    session_key = f"{business_id}:{call_sid}"
+    session = CALL_SESSIONS.get(session_key)
+    if call_status == "completed" and session and session.get("history"):
+        try:
+            info = extract_lead_info(session["history"])
+            lead = create_lead_record(db, business_id, call_sid, info)
+            if lead:
+                logger.info(f"Lead saved on hangup: {lead.caller_name} / {lead.caller_number} ({lead.intent})")
+        except Exception as e:
+            logger.warning(f"Lead extraction on hangup failed: {e}")
+        complete_call(db, call_sid)
+    CALL_SESSIONS.pop(session_key, None)
+    return Response(content="<Response/>", media_type="application/xml")
+
 
 # ============================================================================
 # FRONTEND (must be registered AFTER all routes above)
@@ -1062,7 +1265,7 @@ if os.path.isdir(FRONTEND_DIR):
 @app.on_event("startup")
 async def startup_event():
     logger.info("🚀 AI Voice Agent Backend Starting...")
-    logger.info(f"Public URL: {PUBLIC_BASE_URL}")
+    logger.info(f"Public URL: {_public()}")
 
 if __name__ == "__main__":
     import uvicorn

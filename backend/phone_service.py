@@ -20,6 +20,7 @@ import jwt as pyjwt
 logger = logging.getLogger(__name__)
 
 VONAGE_REST_URL = "https://api.nexmo.com/v1/calls"
+TWILIO_CALLS_URL = "https://api.twilio.com/2010-04-01/Accounts/{sid}/Calls.json"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -66,23 +67,109 @@ def vonage_configured() -> bool:
     )
 
 
+def twilio_configured() -> bool:
+    return bool(
+        os.getenv("TWILIO_ACCOUNT_SID", "").startswith("AC")
+        and os.getenv("TWILIO_AUTH_TOKEN")
+        and os.getenv("TWILIO_PHONE_NUMBER", "").startswith("+")
+    )
+
+
+def active_provider() -> str:
+    """Twilio wins when configured (it's the free-trial path); Vonage is the fallback."""
+    return "twilio" if twilio_configured() else "vonage"
+
+
 def place_call(
     to_number: str,
     answer_url: str,
     from_number: str = None,
+    status_callback: str = None,
 ) -> dict:
     """
-    Place an outbound call. The callee's phone bridges to answer_url,
-    which returns the NCCO (Meera speaking).
+    Place an outbound call through whichever provider is configured
+    (Twilio trial first, Vonage fallback). The callee's phone bridges to
+    answer_url, which returns the voice script (TwiML / NCCO — Meera speaking).
     Returns {"ok": bool, "call_uuid": str|None, "detail": str}
     where detail is always human-friendly.
     """
+    if twilio_configured():
+        return _place_call_twilio(to_number, answer_url, from_number, status_callback)
+    return _place_call_vonage(to_number, answer_url, from_number)
+
+
+def _place_call_twilio(
+    to_number: str,
+    answer_url: str,
+    from_number: str = None,
+    status_callback: str = None,
+) -> dict:
+    """Dial via Twilio's REST API (Basic auth, form-encoded)."""
+    sid = os.getenv("TWILIO_ACCOUNT_SID", "")
+    token = os.getenv("TWILIO_AUTH_TOKEN", "")
+    frm = (from_number or os.getenv("TWILIO_PHONE_NUMBER", "")).strip()
+    # E.164 for both legs
+    to = to_number if to_number.startswith("+") else "+" + to_number.lstrip("+")
+    if not frm.startswith("+"):
+        frm = "+" + frm.lstrip("+")
+
+    if not (sid and token and frm):
+        return {
+            "ok": False,
+            "call_uuid": None,
+            "detail": "Phone calling isn't connected yet — a Twilio number is missing from the settings.",
+        }
+
+    form = {"To": to, "From": frm, "Url": answer_url}
+    if status_callback:
+        form["StatusCallback"] = status_callback
+
+    try:
+        resp = requests.post(
+            TWILIO_CALLS_URL.format(sid=sid),
+            data=form,
+            auth=(sid, token),
+            timeout=30,
+        )
+        data = resp.json() if resp.content else {}
+        if resp.status_code in (200, 201):
+            csid = data.get("sid", "")
+            logger.info(f"📞 Twilio outbound call placed to {to}: {csid}")
+            return {"ok": True, "call_uuid": csid, "detail": "Call started"}
+        code = str(data.get("code", ""))
+        message = data.get("message") or f"Twilio returned {resp.status_code}"
+        logger.warning(f"Twilio call to {to} failed ({code}): {message}")
+        return {"ok": False, "call_uuid": None, "detail": _humanize_twilio_error(code, message)}
+    except Exception as e:
+        logger.error(f"Twilio call error: {e}")
+        return {"ok": False, "call_uuid": None, "detail": "Could not reach the phone network. Check your internet or Twilio settings."}
+
+
+def _humanize_twilio_error(code: str, message: str) -> str:
+    d = f"{code} {message}".lower()
+    if "verif" in d or "trial" in d and "unverified" in d:
+        return "Twilio trial accounts can only call numbers verified in the Twilio console — verify this mobile number first (it takes 30 seconds)."
+    if code == "21211" or "invalid" in d and "from" in d or "not yours" in d:
+        return "The caller number isn't valid for this Twilio account — check TWILIO_PHONE_NUMBER in the settings."
+    if "balance" in d or "credit" in d or "quota" in d:
+        return "Twilio account has no calling credit left — check your trial balance in the Twilio console."
+    if "unroutable" in d or "invalid destination" in d or code == "21216":
+        return "That phone number can't be reached from your Twilio account."
+    return f"Phone network said: {message}"
+
+
+def _place_call_vonage(
+    to_number: str,
+    answer_url: str,
+    from_number: str = None,
+) -> dict:
+    """Dial via the Vonage Voice REST API (JWT auth)."""
     if not vonage_configured():
         missing = []
         if not _application_id() or not _private_key():
             missing.append("Vonage application keys")
         if not os.getenv("VONAGE_PHONE_NUMBER"):
-            missing.append("a Vonage phone number")
+            missing.append("a phone number (Twilio or Vonage)")
         return {
             "ok": False,
             "call_uuid": None,

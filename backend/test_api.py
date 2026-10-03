@@ -454,7 +454,7 @@ def test_campaign_upload_csv_and_auth():
 
 def test_campaign_start_stops_cleanly_on_dial_failure(monkeypatch):
     """Campaign dialer stops cleanly with honest per-row reasons when dialing fails"""
-    def failing_place_call(to_number, answer_url, from_number=None):
+    def failing_place_call(to_number, answer_url, from_number=None, status_callback=None):
         return {"ok": False, "call_uuid": None, "detail": "Vonage account has no calling credit left — top it up in the Vonage dashboard."}
 
     monkeypatch.setattr("main.place_call", failing_place_call)
@@ -483,6 +483,226 @@ def test_campaign_start_stops_cleanly_on_dial_failure(monkeypatch):
     for c in det["calls"]:
         assert c["status"] == "failed"
         assert "credit" in c["detail"].lower()  # honest reason present
+
+
+# ─────────────────────────────────────────────
+# Twilio path (free-trial provider) — TwiML twins of the voice webhooks
+# ─────────────────────────────────────────────
+
+def test_twilio_answer_twin(monkeypatch):
+    async def fake_tts(text, language):
+        return "greet.mp3"
+    monkeypatch.setattr("main.synthesize_speech", fake_tts)
+
+    business_id = _register_business(language="hi")
+    r = client.post(f"/twilio/answer/{business_id}")
+    assert r.status_code == 200, r.text
+    xml = r.text
+    assert "<Response>" in xml and "<Play>" in xml
+    assert "greet.mp3" in xml
+    assert '<Gather input="speech"' in xml and 'language="hi-IN"' in xml
+    assert f"/twilio/event/{business_id}" in xml
+
+
+def test_twilio_event_twin_conversation(monkeypatch):
+    seen = []
+
+    def fake_agent_response(**kwargs):
+        history = kwargs["conversation_history"]
+        seen.append(kwargs["customer_query"])
+        history.append({"role": "user", "content": kwargs["customer_query"]})
+        history.append({"role": "assistant", "content": "jawab"})
+        return "jawab"
+
+    async def fake_tts(text, language):
+        return f"{abs(hash(text)) % 99999}.mp3"
+
+    monkeypatch.setattr("main.get_agent_response", fake_agent_response)
+    monkeypatch.setattr("main.synthesize_speech", fake_tts)
+
+    business_id = _register_business(language="en")
+
+    # Twilio posts form-encoded webhooks
+    r1 = client.post(
+        f"/twilio/event/{business_id}",
+        data={"CallSid": "CAtest123", "SpeechResult": "What is the price of the X5?"},
+    )
+    assert r1.status_code == 200, r1.text
+    assert "<Play>" in r1.text and "<Gather" in r1.text
+    assert seen == ["What is the price of the X5?"]
+
+    # memory carries into turn 2
+    r2 = client.post(
+        f"/twilio/event/{business_id}",
+        data={"CallSid": "CAtest123", "SpeechResult": "and test drive?"},
+    )
+    assert r2.status_code == 200
+    assert seen == ["What is the price of the X5?", "and test drive?"]
+
+
+def test_twilio_event_twin_silence_farewell(monkeypatch):
+    async def fake_tts(text, language):
+        return "f.mp3"
+    monkeypatch.setattr("main.get_agent_response", lambda **kw: "ok")
+    monkeypatch.setattr("main.synthesize_speech", fake_tts)
+
+    business_id = _register_business(language="en")
+    r1 = client.post(f"/twilio/event/{business_id}", data={"CallSid": "CAsil", "SpeechResult": ""})
+    assert r1.status_code == 200
+    assert "<Play>" in r1.text and "<Gather" in r1.text  # reprompt, keep listening
+
+    r2 = client.post(f"/twilio/event/{business_id}", data={"CallSid": "CAsil", "SpeechResult": ""})
+    assert r2.status_code == 200
+    assert "<Hangup/>" in r2.text  # second silence → farewell + hangup
+
+
+def test_twilio_event_twin_saves_lead(monkeypatch):
+    import main as main_mod
+
+    async def fake_tts(text, language):
+        return "l.mp3"
+
+    def fake_agent_response(**kwargs):
+        history = kwargs["conversation_history"]
+        history.append({"role": "user", "content": kwargs["customer_query"]})
+        history.append({"role": "assistant", "content": "Sure ji, may I have your number?"})
+        return "Sure ji, may I have your number?"
+
+    monkeypatch.setattr("main.get_agent_response", fake_agent_response)
+    monkeypatch.setattr("main.synthesize_speech", fake_tts)
+    monkeypatch.setattr(
+        main_mod,
+        "extract_lead_info",
+        lambda history: {
+            "caller_name": "Twilio Caller",
+            "caller_number": "9876543210",
+            "interest": "test drive",
+            "intent": "test_drive",
+            "scheduled_for": "",
+            "notes": "via Twilio twin",
+        },
+    )
+
+    data = _make_user(name="Twilio CRM Owner")
+    biz = _make_business(data["token"], name="Twilio Motors")
+    bid = biz["business_id"]
+    client.post(f"/twilio/event/{bid}", data={"CallSid": f"CA{bid}", "SpeechResult": "I want to book a test drive"})
+    client.post(f"/twilio/event/{bid}", data={"CallSid": f"CA{bid}", "SpeechResult": "my number is 9876543210"})
+    client.post(f"/twilio/event/{bid}", data={"CallSid": f"CA{bid}", "SpeechResult": ""})  # silence 1 → reprompt
+    r4 = client.post(f"/twilio/event/{bid}", data={"CallSid": f"CA{bid}", "SpeechResult": ""})  # silence 2 → wrap up + save lead
+    assert r4.status_code == 200
+    assert "<Hangup/>" in r4.text
+
+    leads = client.get("/api/leads", headers=_auth(data["token"])).json()["leads"]
+    assert len(leads) == 1
+    assert leads[0]["caller_name"] == "Twilio Caller"
+
+
+def test_phone_status_reports_provider():
+    assert client.get("/api/phone/status").status_code == 401  # auth still required
+
+
+def test_twilio_place_call_form(monkeypatch):
+    """Twilio dialer posts E.164 form fields with Basic auth"""
+    import phone_service
+
+    captured = {}
+
+    class FakeResp:
+        status_code = 201
+        content = b'{"sid": "CAfake123"}'
+        def json(self):
+            return {"sid": "CAfake123"}
+
+    def fake_post(url, data=None, auth=None, timeout=None):
+        captured["url"] = url
+        captured["data"] = data
+        captured["auth"] = auth
+        return FakeResp()
+
+    monkeypatch.setattr(phone_service.requests, "post", fake_post)
+    monkeypatch.setenv("TWILIO_ACCOUNT_SID", "ACtest123")
+    monkeypatch.setenv("TWILIO_AUTH_TOKEN", "tok")
+    monkeypatch.setenv("TWILIO_PHONE_NUMBER", "+15551234567")
+
+    res = phone_service.place_call(to_number="918200344429", answer_url="https://x.loca.lt/twilio/answer/abc")
+    assert res["ok"] is True and res["call_uuid"] == "CAfake123"
+    assert captured["data"]["To"] == "+918200344429"
+    assert captured["data"]["From"] == "+15551234567"
+    assert captured["auth"] == ("ACtest123", "tok")
+    assert "Calls.json" in captured["url"]
+
+
+def test_twilio_unverified_number_humanized(monkeypatch):
+    import phone_service
+
+    class FakeResp:
+        status_code = 400
+        content = b'{"code": "21215", "message": "Number is not verified for trial account"}'
+        def json(self):
+            return {"code": 21215, "message": "Number is not verified for trial account"}
+
+    monkeypatch.setattr(phone_service.requests, "post", lambda *a, **kw: FakeResp())
+    monkeypatch.setenv("TWILIO_ACCOUNT_SID", "ACtest123")
+    monkeypatch.setenv("TWILIO_AUTH_TOKEN", "tok")
+    monkeypatch.setenv("TWILIO_PHONE_NUMBER", "+15551234567")
+
+    res = phone_service.place_call(to_number="918200344429", answer_url="https://x/twilio/answer/abc")
+    assert res["ok"] is False
+    assert "verif" in res["detail"].lower()
+
+
+def test_twilio_status_saves_lead_on_hangup(monkeypatch):
+    """Caller hangs up mid-conversation → status callback still extracts the lead"""
+    import main as main_mod
+
+    def fake_agent_response(**kwargs):
+        history = kwargs["conversation_history"]
+        history.append({"role": "user", "content": kwargs["customer_query"]})
+        history.append({"role": "assistant", "content": "Noted ji"})
+        return "Noted ji"
+
+    async def fake_tts(text, language):
+        return "h.mp3"
+
+    monkeypatch.setattr("main.get_agent_response", fake_agent_response)
+    monkeypatch.setattr("main.synthesize_speech", fake_tts)
+    monkeypatch.setattr(
+        main_mod,
+        "extract_lead_info",
+        lambda history: {
+            "caller_name": "Poojan",
+            "caller_number": "918200344429",
+            "interest": "Audi A8 test drive Tuesday 10am",
+            "intent": "test_drive",
+            "scheduled_for": "Tuesday 10am",
+            "notes": "wants brochure",
+        },
+    )
+
+    data = _make_user(name="Hangup Owner")
+    biz = _make_business(data["token"], name="Hangup Motors")
+    bid = biz["business_id"]
+    csid = f"CAHANGUP{bid}"
+    client.post(f"/twilio/event/{bid}", data={"CallSid": csid, "SpeechResult": "book a test drive please"})
+    client.post(f"/twilio/event/{bid}", data={"CallSid": csid, "SpeechResult": "my number is 9876543210"})
+    # caller hangs up — no farewell ever runs
+    r = client.post(f"/twilio/status/{bid}", data={"CallSid": csid, "CallStatus": "completed"})
+    assert r.status_code == 200, r.text
+
+    leads = client.get("/api/leads", headers=_auth(data["token"])).json()["leads"]
+    assert len(leads) == 1
+    assert leads[0]["caller_name"] == "Poojan"
+    assert "Tuesday" in (leads[0].get("scheduled_for") or "")
+
+
+def test_twilio_status_ignores_noncompleted():
+    data = _make_user(name="NoLead Owner")
+    biz = _make_business(data["token"], name="NoLead Motors")
+    r = client.post(f"/twilio/status/{biz['business_id']}", data={"CallSid": "CAnone", "CallStatus": "no-answer"})
+    assert r.status_code == 200
+    leads = client.get("/api/leads", headers=_auth(data["token"])).json()["leads"]
+    assert len(leads) == 0
 
 
 if __name__ == "__main__":
