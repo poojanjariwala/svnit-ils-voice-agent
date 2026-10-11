@@ -1,0 +1,24 @@
+# Never ship local dev state into the image.
+.env
+.env.*
+!.env.example
+.git
+.gitignore
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Local SQLite databases and generated audio — Postgres is the real store.
+*.db
+backend/audio_files/
+backend/tunnel.log
+backend/tunnel.err
+
+# CRITICAL: _public() reads this file BEFORE the PUBLIC_BASE_URL env var.
+# Shipping it would point every Twilio webhook at a dead loca.lt tunnel
+# instead of the Render URL.
+backend/public_url.txt
+
+*.md
+sample-data/
+tests/

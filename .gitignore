@@ -16,3 +16,5 @@ build/
 .idea/
 .vscode/settings.json
 node_modules/
+*.err
+backend/public_url.txt

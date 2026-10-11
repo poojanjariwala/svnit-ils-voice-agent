@@ -3,12 +3,25 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#F6F7F4">
+  <meta name="theme-color" content="#F1F1F8">
   <title>VoxAgent — a phone agent for your business</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
+    // Runs before first paint so the page never flashes the wrong theme.
+    (function () {
+      const saved = localStorage.getItem('voxagent_theme');
+      const dark = saved ? saved === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    })();
+  </script>
+  <script>
     tailwind.config = { theme: { extend: {
-      colors: { paper: '#F6F7F4', raised: '#FFFFFF', ink: '#141A22', soft: '#5A6472', rule: '#D8DCE2', marigold: '#E8A020', ledger: '#1F6F4A' },
+      colors: {
+        paper: 'var(--bg)', raised: 'var(--surface)', sunken: 'var(--surface-2)',
+        ink: 'var(--ink)', soft: 'var(--soft)', rule: 'var(--rule)',
+        marigold: 'var(--accent)', ledger: 'var(--good)',
+        brand: 'var(--brand-a)',
+      },
       fontFamily: {
         sans: ['Instrument Sans', 'Noto Sans Devanagari', 'Noto Sans Gujarati', 'system-ui', 'sans-serif'],
         display: ['Bricolage Grotesque', 'Instrument Sans', 'Noto Sans Devanagari', 'sans-serif'],
@@ -20,17 +33,131 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Instrument+Sans:wght@400;500;600&family=Noto+Sans+Devanagari:wght@400;600&family=Noto+Sans+Gujarati:wght@400;600&display=swap" rel="stylesheet">
   <style>
-    :root { color-scheme: light; }
-    body { background: #F6F7F4; color: #141A22; touch-action: manipulation; -webkit-tap-highlight-color: rgba(232,160,32,.18); }
-    :focus-visible { outline: 2px solid #E8A020; outline-offset: 2px; border-radius: 4px; }
+    /* ── tokens — shared with the console, see dashboard.html ── */
+    :root {
+      color-scheme: light;
+      --bg: #F1F1F8; --bg-tint: #E6E5F2;
+      --surface: #FFFFFF; --surface-2: #FAFAFE;
+      --ink: #141A22; --soft: #4F5765; --muted: #4E5666;
+      --rule: #D9D8E8;
+      --brand-a: #7C3AED; --brand-b: #2563EB; --brand-c: #06B6D4;
+      --brand-grad: linear-gradient(135deg, var(--brand-a) 0%, var(--brand-b) 100%);
+      --wordmark-grad: linear-gradient(110deg, #6D28D9 0%, var(--brand-b) 100%);
+      --brand-ink: #5B21B6; --on-brand: #FFFFFF;
+      --h1: #1D4ED8; --h2: #5B21B6; --h3: #0D7443; --h4: #8A5A00;
+      --wash-1: 18%; --wash-2: 18%; --wash-3: 12%;
+      --accent: #E8A020; --accent-ink: #8A5A00; --good: #1F6F4A;
+      --lift-1: 0 1px 2px rgba(20,26,34,.05), 0 1px 1px rgba(20,26,34,.04);
+      --lift-2: 0 2px 4px rgba(20,26,34,.05), 0 8px 20px -8px rgba(20,26,34,.14);
+      --lift-3: 0 4px 10px rgba(20,26,34,.07), 0 20px 40px -14px rgba(20,26,34,.20);
+      --glass: rgba(255,255,255,.72);
+    }
+    [data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #0B1020; --bg-tint: #0F1630;
+      --surface: #151C33; --surface-2: #1C2542;
+      --ink: #F1F5F9; --soft: #9AA8C0; --muted: #94A3B8;
+      --rule: #2A3654;
+      --brand-a: #6D28D9; --brand-b: #1D4ED8; --brand-c: #0891B2;
+      --brand-grad: linear-gradient(135deg, var(--brand-a) 0%, var(--brand-b) 100%);
+      --wordmark-grad: linear-gradient(110deg, #C4B5FD 0%, #7DD3FC 100%);
+      --brand-ink: #C4B5FD; --on-brand: #FFFFFF;
+      --h1: #60A5FA; --h2: #C4B5FD; --h3: #34D399; --h4: #FBBF24;
+      --wash-1: 34%; --wash-2: 28%; --wash-3: 16%;
+      --accent: #FBBF24; --accent-ink: #FBBF24; --good: #34D399;
+      --lift-1: inset 0 1px 0 rgba(255,255,255,.05), 0 1px 2px rgba(0,0,0,.3);
+      --lift-2: inset 0 1px 0 rgba(255,255,255,.06), 0 2px 6px rgba(0,0,0,.4);
+      --lift-3: inset 0 1px 0 rgba(255,255,255,.09), 0 12px 32px rgba(0,0,0,.5);
+      --glass: rgba(13,19,38,.72);
+    }
+    body {
+      background: var(--bg); color: var(--ink);
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: color-mix(in srgb, var(--brand-b) 22%, transparent);
+      background-image:
+        radial-gradient(900px 520px at 4% -14%, color-mix(in srgb, var(--brand-a) var(--wash-1), transparent), transparent 64%),
+        radial-gradient(860px 500px at 98% -18%, color-mix(in srgb, var(--brand-c) var(--wash-2), transparent), transparent 64%),
+        radial-gradient(900px 620px at 50% 114%, color-mix(in srgb, var(--brand-b) var(--wash-3), transparent), transparent 66%),
+        radial-gradient(1000px 520px at 50% -8%, var(--bg-tint), transparent 70%);
+      background-attachment: fixed;
+    }
+    :focus-visible { outline: 2px solid var(--brand-b); outline-offset: 2px; border-radius: 4px; }
     .num { font-variant-numeric: tabular-nums; }
-    .btn-ink { background: #141A22; color: #fff; transition: background-color .15s ease; }
-    .btn-ink:hover { background: #2A3442; }
-    .btn-quiet { border: 1px solid #D8DCE2; color: #141A22; transition: border-color .15s ease, background-color .15s ease; }
-    .btn-quiet:hover { border-color: #141A22; background: #FFFFFF; }
-    .call-slip { border: 1px solid #D8DCE2; border-left: 3px solid #E8A020; background: #FFFFFF; }
+    .glass {
+      background: var(--glass);
+      -webkit-backdrop-filter: blur(14px) saturate(1.4);
+      backdrop-filter: blur(14px) saturate(1.4);
+    }
+    @supports not (backdrop-filter: blur(1px)) { .glass { background: var(--surface); } }
+    .btn-brand { color: var(--on-brand); background-color: var(--brand-b); background-image: var(--brand-grad); transition: filter .15s ease, transform .1s ease, box-shadow .15s ease; box-shadow: var(--lift-2), 0 4px 14px -6px color-mix(in srgb, var(--brand-b) 70%, transparent); }
+    .btn-brand:hover { filter: brightness(1.07) saturate(1.06); box-shadow: var(--lift-3), 0 10px 26px -10px color-mix(in srgb, var(--brand-b) 85%, transparent); }
+    .btn-brand:active { transform: translateY(1px); filter: brightness(.95); }
+    .logo-mark {
+      width: 26px; height: 26px; flex: none;
+      border-radius: 8px; display: grid; place-items: center;
+      font-size: 13px; color: var(--on-brand);
+      background-color: var(--brand-b); background-image: var(--brand-grad);
+      box-shadow: 0 4px 12px -3px color-mix(in srgb, var(--brand-b) 75%, transparent);
+    }
+    .wordmark { color: var(--brand-ink); }
+    @supports ((background-clip: text) or (-webkit-background-clip: text)) {
+      .wordmark { background-image: var(--wordmark-grad); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
+    }
+    /* the hero wordmark spans the page, so it gets the 110° sweep */
+    h1.wordmark { background-image: linear-gradient(110deg, #6D28D9 0%, var(--brand-b) 55%, var(--brand-c) 100%); }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 14px;
+      box-shadow: var(--lift-1);
+      transition: box-shadow .18s ease, transform .18s ease, border-color .18s ease;
+    }
+    .card:hover { transform: translateY(-2px); box-shadow: var(--lift-2); border-color: color-mix(in srgb, var(--brand-a) 28%, var(--rule)); }
+    .chip {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 14px; border-radius: 12px; color: var(--ink);
+      border: 1px solid color-mix(in srgb, var(--brand-a) 22%, var(--rule));
+      background: color-mix(in srgb, var(--brand-a) 7%, var(--surface));
+    }
+    /* the closing band — the one place the brand gradient washes a whole surface */
+    .cta-band {
+      position: relative; overflow: hidden; border-radius: 20px;
+      border: 1px solid color-mix(in srgb, var(--brand-a) 26%, var(--rule));
+      background:
+        radial-gradient(700px 320px at 10% -10%, color-mix(in srgb, var(--brand-a) 16%, transparent), transparent 70%),
+        radial-gradient(620px 300px at 92% 115%, color-mix(in srgb, var(--brand-c) 16%, transparent), transparent 70%),
+        var(--surface);
+      box-shadow: var(--lift-3);
+    }
+    /* each step takes the next hue in the cycle, same as the console tiles */
+    .step-num {
+      --t: var(--h1);
+      width: 34px; height: 34px; flex: none;
+      border-radius: 11px; display: grid; place-items: center;
+      font-size: 13px; font-weight: 600;
+      color: var(--t);
+      background: color-mix(in srgb, var(--t) 13%, transparent);
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--t) 28%, transparent);
+    }
+    .step-num-2 { --t: var(--h2); }
+    .step-num-3 { --t: var(--h3); }
+    .btn-quiet { border: 1px solid var(--rule); color: var(--ink); background: var(--surface); transition: border-color .15s ease, background-color .15s ease, box-shadow .15s ease; }
+    .btn-quiet:hover { border-color: color-mix(in srgb, var(--ink) 45%, var(--rule)); background: var(--surface-2); box-shadow: var(--lift-1); }
+    /* the live-call card — the one loud thing in the product */
+    .call-slip {
+      border: 1px solid var(--rule); border-left: 3px solid var(--accent);
+      background: var(--surface); border-radius: 12px; box-shadow: var(--lift-3);
+    }
+    .live-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--accent); display: inline-block; animation: pulse 1.8s ease-in-out infinite; }
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent); }
+      50%      { box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 0%, transparent); }
+    }
+    .theme-btn { color: var(--soft); transition: color .15s ease, transform .3s ease, background-color .15s ease; }
+    .theme-btn:hover { color: var(--ink); background: var(--surface-2); }
+    .theme-btn:active { transform: rotate(35deg) scale(.9); }
     @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+      *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
     }
   </style>
 </head>
@@ -38,104 +165,129 @@
 
   <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:m-3 focus:bg-ink focus:text-white focus:px-3 focus:py-2 focus:rounded">Skip to content</a>
 
-  <header class="border-b border-rule bg-raised">
-    <div class="max-w-3xl mx-auto px-5 sm:px-8 h-16 flex items-center justify-between">
-      <span class="font-display text-[19px] font-bold tracking-tight">VoxAgent</span>
-      <div class="flex items-center gap-5" id="nav-auth">
-        <a href="login.html" class="text-sm text-soft hover:text-ink transition-colors">Log in</a>
-        <a href="login.html?mode=signup" class="btn-ink text-sm font-medium px-4 py-2 rounded-lg">Get started free</a>
+  <header class="glass border-b border-rule sticky top-0 z-40">
+    <div class="max-w-6xl mx-auto px-5 sm:px-8 h-16 flex items-center justify-between">
+      <span class="flex items-center gap-2">
+          <span class="logo-mark" aria-hidden="true"><i class="fas fa-wave-square"></i></span>
+          <span class="font-display text-[19px] font-bold tracking-tight wordmark">VoxAgent</span>
+        </span>
+      <div class="flex items-center gap-2 sm:gap-3">
+        <button onclick="toggleTheme()" id="theme-btn" class="theme-btn p-2 rounded-lg" aria-label="Switch theme">
+          <i id="theme-icon" class="fas" aria-hidden="true"></i>
+        </button>
+        <div class="flex items-center gap-3" id="nav-auth">
+          <a href="login.html" class="text-sm text-soft hover:text-ink transition-colors px-2 py-2">Log in</a>
+          <a href="login.html?mode=signup" class="btn-brand text-sm font-medium px-4 py-2 rounded-lg">Get started free</a>
+        </div>
       </div>
     </div>
   </header>
 
-  <main id="main" class="max-w-3xl mx-auto px-5 sm:px-8">
+  <main id="main" class="max-w-6xl mx-auto px-5 sm:px-8">
 
     <!-- hero: the product IS a phone call, so show one -->
     <section class="pt-14 sm:pt-20 pb-14">
-      <h1 class="font-display text-4xl sm:text-5xl font-bold leading-[1.05] mb-5 text-balance">
-        Your business, answering every call.
-      </h1>
-      <p class="text-lg text-soft max-w-xl mb-8">
-        Meera picks up in Hindi, Gujarati or English, answers from your prices and hours,
-        and writes down who wanted what — while you get on with your day.
-      </p>
-      <div class="flex gap-3 flex-wrap">
-        <a href="login.html?mode=signup" class="btn-ink font-medium px-6 py-3 rounded-lg">Create your agent — free</a>
-        <a href="#how" class="btn-quiet font-medium px-6 py-3 rounded-lg">How it works</a>
-      </div>
-
-      <div class="call-slip rounded-lg p-5 sm:p-6 mt-12">
-        <div class="flex items-center gap-2 text-xs text-soft mb-4">
-          <span class="live-dot w-1.5 h-1.5 rounded-full" style="background:#E8A020" aria-hidden="true"></span>
-          <span class="num">Sharma Automobiles · today, 7:42 pm · 4 min</span>
+      <div class="grid lg:grid-cols-12 gap-10 lg:gap-14 items-center">
+        <div class="lg:col-span-7">
+          <h1 class="font-display text-4xl sm:text-5xl lg:text-6xl font-bold leading-[1.03] mb-5 text-balance wordmark">
+            Your business, answering every call.
+          </h1>
+          <p class="text-lg text-soft max-w-xl mb-8">
+            Meera picks up in Hindi, Gujarati or English, answers from your prices and hours,
+            and writes down who wanted what — while you get on with your day.
+          </p>
+          <div class="flex gap-3 flex-wrap">
+            <a href="login.html?mode=signup" class="btn-brand font-medium px-6 py-3 rounded-lg">Create your agent — free</a>
+            <a href="#how" class="btn-quiet font-medium px-6 py-3 rounded-lg">How it works</a>
+          </div>
         </div>
-        <div class="space-y-3 text-[15px] leading-relaxed">
-          <p><b>Caller:</b> <span class="text-soft">Do you have the X1 in stock? What is the exchange offer?</span></p>
-          <p><b class="text-ledger">Meera:</b> Yes ji — two X1s in silver and white. On exchange we are offering ₹1.5 lakh this month, and test drives are free with a day's notice. May I have your name and number?</p>
-          <p><b>Caller:</b> <span class="text-soft">Rajesh, 98765 43210. Tomorrow morning works.</span></p>
-          <p><b class="text-ledger">Meera:</b> Booked ji — Rajesh, tomorrow 11 am. Our team will confirm on this number. धन्यवाद!</p>
+
+        <div class="lg:col-span-5">
+          <div class="call-slip p-5 sm:p-6">
+            <div class="flex items-center gap-2 text-xs text-soft mb-4">
+              <span class="live-dot w-1.5 h-1.5 rounded-full" aria-hidden="true"></span>
+              <span class="num">Sharma Automobiles · today, 7:42 pm · 4 min</span>
+            </div>
+            <div class="space-y-3 text-[15px] leading-relaxed">
+              <p><b>Caller:</b> <span class="text-soft">Do you have the X1 in stock? What is the exchange offer?</span></p>
+              <p><b class="text-ledger">Meera:</b> Yes ji — two X1s in silver and white. On exchange we are offering ₹1.5 lakh this month, and test drives are free with a day's notice. May I have your name and number?</p>
+              <p><b>Caller:</b> <span class="text-soft">Rajesh, 98765 43210. Tomorrow morning works.</span></p>
+              <p><b class="text-ledger">Meera:</b> Booked ji — Rajesh, tomorrow 11 am. Our team will confirm on this number. धन्यवाद!</p>
+            </div>
+          </div>
         </div>
       </div>
     </section>
 
     <!-- three steps: a real sequence, so numbering is honest -->
     <section id="how" class="border-t border-rule py-14">
-      <h2 class="font-display text-2xl font-bold mb-8">Three steps to your first call</h2>
-      <ol class="space-y-8">
-        <li class="flex gap-5">
-          <span class="num text-sm text-soft pt-1">01</span>
-          <div>
-            <h3 class="font-semibold text-[17px] mb-1">Create your account</h3>
-            <p class="text-soft text-[15px]">Email and a password. No card, no sales call.</p>
-          </div>
+      <h2 class="font-display text-2xl sm:text-3xl font-bold mb-8">Three steps to your first call</h2>
+      <ol class="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+        <li class="card p-6">
+          <span class="step-num num mb-4">01</span>
+          <h3 class="font-semibold text-[17px] mb-1">Create your account</h3>
+          <p class="text-soft text-[15px]">Email and a password. No card, no sales call.</p>
         </li>
-        <li class="flex gap-5">
-          <span class="num text-sm text-soft pt-1">02</span>
-          <div>
-            <h3 class="font-semibold text-[17px] mb-1">Answer four questions</h3>
-            <p class="text-soft text-[15px]">Your business, language, prices, hours. Add a price list if you have one — Meera reads it too.</p>
-          </div>
+        <li class="card p-6">
+          <span class="step-num step-num-2 num mb-4">02</span>
+          <h3 class="font-semibold text-[17px] mb-1">Answer four questions</h3>
+          <p class="text-soft text-[15px]">Your business, language, prices, hours. Add a price list if you have one — Meera reads it too.</p>
         </li>
-        <li class="flex gap-5">
-          <span class="num text-sm text-soft pt-1">03</span>
-          <div>
-            <h3 class="font-semibold text-[17px] mb-1">Connect a phone number</h3>
-            <p class="text-soft text-[15px]">Grab a free trial number from Twilio, or bring your own. Then Meera picks up — or calls out first.</p>
-          </div>
+        <li class="card p-6">
+          <span class="step-num step-num-3 num mb-4">03</span>
+          <h3 class="font-semibold text-[17px] mb-1">Connect a phone number</h3>
+          <p class="text-soft text-[15px]">Grab a free trial number from Twilio, or bring your own. Then Meera picks up — or calls out first.</p>
         </li>
       </ol>
     </section>
 
     <section class="border-t border-rule py-14">
-      <h2 class="font-display text-2xl font-bold mb-2">Built for businesses that live on calls</h2>
+      <h2 class="font-display text-2xl sm:text-3xl font-bold mb-2">Built for businesses that live on calls</h2>
       <p class="text-soft mb-6">One agent per shop, showroom or clinic — each answering as that business.</p>
-      <ul class="flex flex-wrap gap-2 text-sm">
-        <li class="border border-rule rounded-lg px-3 py-1.5 bg-raised"><span aria-hidden="true">🏪</span> Retail &amp; stores</li>
-        <li class="border border-rule rounded-lg px-3 py-1.5 bg-raised"><span aria-hidden="true">🚗</span> Car showrooms</li>
-        <li class="border border-rule rounded-lg px-3 py-1.5 bg-raised"><span aria-hidden="true">💼</span> Finance &amp; loans</li>
-        <li class="border border-rule rounded-lg px-3 py-1.5 bg-raised"><span aria-hidden="true">📣</span> Agencies</li>
-        <li class="border border-rule rounded-lg px-3 py-1.5 bg-raised"><span aria-hidden="true">🏥</span> Clinics</li>
-        <li class="border border-rule rounded-lg px-3 py-1.5 bg-raised"><span aria-hidden="true">🏠</span> Real estate</li>
+      <ul class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
+        <li class="chip"><span aria-hidden="true">🏪</span> Retail &amp; stores</li>
+        <li class="chip"><span aria-hidden="true">🚗</span> Car showrooms</li>
+        <li class="chip"><span aria-hidden="true">💼</span> Finance &amp; loans</li>
+        <li class="chip"><span aria-hidden="true">📣</span> Agencies</li>
+        <li class="chip"><span aria-hidden="true">🏥</span> Clinics</li>
+        <li class="chip"><span aria-hidden="true">🏠</span> Real estate</li>
       </ul>
     </section>
 
     <section class="border-t border-rule py-14 mb-10">
-      <h2 class="font-display text-2xl font-bold mb-3 max-w-lg">Missed calls are the expensive kind.</h2>
-      <p class="text-soft max-w-lg mb-6">One caller who can't get through is one walk-in who goes to the shop next door.</p>
-      <a href="login.html?mode=signup" class="btn-ink font-medium px-6 py-3 rounded-lg inline-block">Start your free agent</a>
+      <div class="cta-band p-10 sm:p-16 text-center">
+        <h2 class="font-display text-3xl sm:text-4xl font-bold mb-3">Missed calls are the expensive kind.</h2>
+        <p class="text-soft mb-8 mx-auto" style="max-width: 48ch">One caller who can't get through is one walk-in who goes to the shop next door.</p>
+        <a href="login.html?mode=signup" class="btn-brand font-medium px-7 py-3.5 rounded-lg">Start your free agent</a>
+      </div>
     </section>
   </main>
 
   <footer class="border-t border-rule">
-    <div class="max-w-3xl mx-auto px-5 sm:px-8 py-6 text-xs text-soft flex justify-between">
+    <div class="max-w-6xl mx-auto px-5 sm:px-8 py-6 text-xs text-soft flex justify-between">
       <span>VoxAgent</span><span>Meera answers your calls</span>
     </div>
   </footer>
 
   <script>
+    function syncThemeBtn() {
+      const dark = document.documentElement.dataset.theme === 'dark';
+      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#0B1020' : '#F1F1F8');
+      document.getElementById('theme-icon').className = dark ? 'fas fa-sun' : 'fas fa-moon';
+      document.getElementById('theme-btn').setAttribute('aria-label', dark ? 'Switch to light theme' : 'Switch to dark theme');
+    }
+    function toggleTheme() {
+      const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+      document.documentElement.dataset.theme = next;
+      localStorage.setItem('voxagent_theme', next);
+      syncThemeBtn();
+    }
+    syncThemeBtn();
+
+    // only the auth links get swapped — the theme button sits outside this node
     if (localStorage.getItem('voxagent_token')) {
       document.getElementById('nav-auth').innerHTML =
-        '<a href="dashboard.html" class="btn-ink text-sm font-medium px-4 py-2 rounded-lg">Open console</a>';
+        '<a href="dashboard.html" class="btn-brand text-sm font-medium px-4 py-2 rounded-lg">Open console</a>';
     }
   </script>
 </body>

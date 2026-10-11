@@ -13,6 +13,10 @@
 import os
 import sys
 import uuid
+from types import SimpleNamespace
+from unittest import mock
+
+from sqlalchemy import Boolean, Column, String
 
 import pytest
 from fastapi.testclient import TestClient
@@ -34,6 +38,18 @@ def _make_user(email=None, name="Owner One", password="secret123"):
     r = client.post("/api/auth/signup", json={"email": email, "name": name, "password": password})
     assert r.status_code == 200, r.text
     return r.json()
+
+
+def _tw(path, data=None):
+    """POST to a /twilio/* webhook the way Twilio really does — with a valid signature."""
+    from twilio_security import expected_signature
+    token = os.getenv("TWILIO_AUTH_TOKEN", "")
+    headers = {}
+    if token:
+        headers["X-Twilio-Signature"] = expected_signature(
+            f"http://testserver{path}", data or {}, token
+        )
+    return client.post(path, data=data, headers=headers)
 
 
 def _auth(token):
@@ -495,7 +511,7 @@ def test_twilio_answer_twin(monkeypatch):
     monkeypatch.setattr("main.synthesize_speech", fake_tts)
 
     business_id = _register_business(language="hi")
-    r = client.post(f"/twilio/answer/{business_id}")
+    r = _tw(f"/twilio/answer/{business_id}")
     assert r.status_code == 200, r.text
     xml = r.text
     assert "<Response>" in xml and "<Play>" in xml
@@ -523,7 +539,7 @@ def test_twilio_event_twin_conversation(monkeypatch):
     business_id = _register_business(language="en")
 
     # Twilio posts form-encoded webhooks
-    r1 = client.post(
+    r1 = _tw(
         f"/twilio/event/{business_id}",
         data={"CallSid": "CAtest123", "SpeechResult": "What is the price of the X5?"},
     )
@@ -532,7 +548,7 @@ def test_twilio_event_twin_conversation(monkeypatch):
     assert seen == ["What is the price of the X5?"]
 
     # memory carries into turn 2
-    r2 = client.post(
+    r2 = _tw(
         f"/twilio/event/{business_id}",
         data={"CallSid": "CAtest123", "SpeechResult": "and test drive?"},
     )
@@ -547,11 +563,11 @@ def test_twilio_event_twin_silence_farewell(monkeypatch):
     monkeypatch.setattr("main.synthesize_speech", fake_tts)
 
     business_id = _register_business(language="en")
-    r1 = client.post(f"/twilio/event/{business_id}", data={"CallSid": "CAsil", "SpeechResult": ""})
+    r1 = _tw(f"/twilio/event/{business_id}", data={"CallSid": "CAsil", "SpeechResult": ""})
     assert r1.status_code == 200
     assert "<Play>" in r1.text and "<Gather" in r1.text  # reprompt, keep listening
 
-    r2 = client.post(f"/twilio/event/{business_id}", data={"CallSid": "CAsil", "SpeechResult": ""})
+    r2 = _tw(f"/twilio/event/{business_id}", data={"CallSid": "CAsil", "SpeechResult": ""})
     assert r2.status_code == 200
     assert "<Hangup/>" in r2.text  # second silence → farewell + hangup
 
@@ -586,10 +602,10 @@ def test_twilio_event_twin_saves_lead(monkeypatch):
     data = _make_user(name="Twilio CRM Owner")
     biz = _make_business(data["token"], name="Twilio Motors")
     bid = biz["business_id"]
-    client.post(f"/twilio/event/{bid}", data={"CallSid": f"CA{bid}", "SpeechResult": "I want to book a test drive"})
-    client.post(f"/twilio/event/{bid}", data={"CallSid": f"CA{bid}", "SpeechResult": "my number is 9876543210"})
-    client.post(f"/twilio/event/{bid}", data={"CallSid": f"CA{bid}", "SpeechResult": ""})  # silence 1 → reprompt
-    r4 = client.post(f"/twilio/event/{bid}", data={"CallSid": f"CA{bid}", "SpeechResult": ""})  # silence 2 → wrap up + save lead
+    _tw(f"/twilio/event/{bid}", data={"CallSid": f"CA{bid}", "SpeechResult": "I want to book a test drive"})
+    _tw(f"/twilio/event/{bid}", data={"CallSid": f"CA{bid}", "SpeechResult": "my number is 9876543210"})
+    _tw(f"/twilio/event/{bid}", data={"CallSid": f"CA{bid}", "SpeechResult": ""})  # silence 1 → reprompt
+    r4 = _tw(f"/twilio/event/{bid}", data={"CallSid": f"CA{bid}", "SpeechResult": ""})  # silence 2 → wrap up + save lead
     assert r4.status_code == 200
     assert "<Hangup/>" in r4.text
 
@@ -684,10 +700,10 @@ def test_twilio_status_saves_lead_on_hangup(monkeypatch):
     biz = _make_business(data["token"], name="Hangup Motors")
     bid = biz["business_id"]
     csid = f"CAHANGUP{bid}"
-    client.post(f"/twilio/event/{bid}", data={"CallSid": csid, "SpeechResult": "book a test drive please"})
-    client.post(f"/twilio/event/{bid}", data={"CallSid": csid, "SpeechResult": "my number is 9876543210"})
+    _tw(f"/twilio/event/{bid}", data={"CallSid": csid, "SpeechResult": "book a test drive please"})
+    _tw(f"/twilio/event/{bid}", data={"CallSid": csid, "SpeechResult": "my number is 9876543210"})
     # caller hangs up — no farewell ever runs
-    r = client.post(f"/twilio/status/{bid}", data={"CallSid": csid, "CallStatus": "completed"})
+    r = _tw(f"/twilio/status/{bid}", data={"CallSid": csid, "CallStatus": "completed"})
     assert r.status_code == 200, r.text
 
     leads = client.get("/api/leads", headers=_auth(data["token"])).json()["leads"]
@@ -699,7 +715,7 @@ def test_twilio_status_saves_lead_on_hangup(monkeypatch):
 def test_twilio_status_ignores_noncompleted():
     data = _make_user(name="NoLead Owner")
     biz = _make_business(data["token"], name="NoLead Motors")
-    r = client.post(f"/twilio/status/{biz['business_id']}", data={"CallSid": "CAnone", "CallStatus": "no-answer"})
+    r = _tw(f"/twilio/status/{biz['business_id']}", data={"CallSid": "CAnone", "CallStatus": "no-answer"})
     assert r.status_code == 200
     leads = client.get("/api/leads", headers=_auth(data["token"])).json()["leads"]
     assert len(leads) == 0
@@ -720,11 +736,13 @@ def test_outbound_closes_orphaned_calling_rows():
     bid = _make_business(data["token"], name="Orphan Motors")["business_id"]
 
     session = SessionLocal()
+    # the SQLite file persists between runs, so ids must be unique per run
+    fresh_id, stale_id = f"fresh{uuid.uuid4().hex[:8]}", f"stale{uuid.uuid4().hex[:8]}"
     try:
         session.add_all([
-            OutboundCall(id="freshcall", business_id=bid, caller_number="9000000001",
+            OutboundCall(id=fresh_id, business_id=bid, caller_number="9000000001",
                          status="calling", called_at=datetime.now()),
-            OutboundCall(id="stalecall", business_id=bid, caller_number="9000000002",
+            OutboundCall(id=stale_id, business_id=bid, caller_number="9000000002",
                          status="calling",
                          called_at=datetime.now() - timedelta(seconds=main.CALL_WINDOW_SECONDS + 60)),
         ])
@@ -734,11 +752,391 @@ def test_outbound_closes_orphaned_calling_rows():
 
     calls = client.get("/api/outbound", headers=_auth(data["token"])).json()["calls"]
     by_id = {c["id"]: c for c in calls}
-    assert by_id["stalecall"]["status"] == "done"
-    assert "no status update" in by_id["stalecall"]["detail"]
-    assert by_id["freshcall"]["status"] == "calling", "a call inside the window must stay live"
+    assert by_id[stale_id]["status"] == "done"
+    assert "no status update" in by_id[stale_id]["detail"]
+    assert by_id[fresh_id]["status"] == "calling", "a call inside the window must stay live"
+
+
+def test_migration_adds_detail_columns_to_an_existing_table():
+    """create_all() never adds a column to a table that already exists —
+    without migrate_missing_columns() every leads query would throw."""
+    from sqlalchemy import inspect, text
+    import database
+    from models import Base
+
+    table = "leads_migration_probe"
+    with database.engine.begin() as conn:
+        # a stand-in for the old schema: only the pre-detail columns
+        conn.execute(text(f'CREATE TABLE IF NOT EXISTS {table} (id VARCHAR(50) PRIMARY KEY)'))
+
+    class Probe(Base):
+        __tablename__ = table
+        id = Column(String(50), primary_key=True)
+        product = Column(String(255), nullable=True)
+        needs_callback = Column(Boolean, default=False)
+
+    assert database.migrate_missing_columns(tables=(Probe,)) == [f"{table}.product", f"{table}.needs_callback"]
+    cols = {c["name"] for c in inspect(database.engine).get_columns(table)}
+    assert {"product", "needs_callback"} <= cols
+    # running again must not try to re-add them
+    assert database.migrate_missing_columns(tables=(Probe,)) == []
+    with database.engine.begin() as conn:
+        conn.execute(text(f'DROP TABLE {table}'))
+
+
+def test_leads_api_exposes_every_detail_column():
+    from datetime import datetime
+    from database import SessionLocal
+    from models import Lead
+
+    data = _make_user(name="Detail Owner")
+    bid = _make_business(data["token"], name="Detail Motors")["business_id"]
+
+    lead_id = f"det{uuid.uuid4().hex[:8]}"
+    session = SessionLocal()
+    try:
+        session.add(Lead(
+            id=lead_id, business_id=bid, caller_name="Rajesh Kumar",
+            caller_number="9876543210", caller_email="rk@example.com",
+            product="BMW X5", interest="test drive", intent="test_drive",
+            visit_type="test_drive", visit_at="2026-10-04 11:00",
+            scheduled_for="tomorrow 11 am", needs_callback=True,
+            callback_reason="send the EMI sheet", requested_material="emi_sheet",
+            status="new", created_at=datetime.now(),
+        ))
+        session.commit()
+    finally:
+        session.close()
+
+    leads = client.get("/api/leads", headers=_auth(data["token"])).json()["leads"]
+    row = next(l for l in leads if l["id"] == lead_id)
+    assert row["caller_number"] == "9876543210"
+    assert row["caller_email"] == "rk@example.com"
+    assert row["product"] == "BMW X5"
+    assert row["visit_type"] == "test_drive"
+    assert row["visit_at"] == "2026-10-04 11:00"
+    assert row["needs_callback"] is True
+    assert row["requested_material"] == "emi_sheet"
+
+
+def test_extractor_fills_details_without_the_llm():
+    """The Groq call can fail (no key, no network). The regex pass must still
+    yield the contact and visit details on its own."""
+    from llm_service import extract_lead_info
+
+    history = [
+        {"role": "user", "content": "Do you have the BMW X5? I can come for a test drive."},
+        {"role": "assistant", "content": "Yes ji. What is your number?"},
+        {"role": "user", "content": "98765 43210, and send me the brochure to rk@example.com"},
+    ]
+    with mock.patch("llm_service._get_client", side_effect=RuntimeError("no network")):
+        info = extract_lead_info(history)
+
+    assert info["caller_number"] == "9876543210"
+    assert info["caller_email"] == "rk@example.com"
+    assert info["visit_type"] == "test_drive"
+    assert info["requested_material"] == "brochure"
+    assert info["needs_callback"] is False
+
+
+def test_extractor_rejects_a_nonsense_visit_at():
+    from llm_service import extract_lead_info
+
+    history = [{"role": "user", "content": "I can come tomorrow morning."}]
+    fake = SimpleNamespace(choices=[SimpleNamespace(
+        message=SimpleNamespace(content='{"visit_at": "sometime soon please", "product": "X5"}'))])
+    with mock.patch("llm_service._get_client", return_value=SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **k: fake)))):
+        info = extract_lead_info(history)
+
+    assert info["visit_at"] is None, "an unresolvable date must not reach the table"
+    assert info["product"] == "X5"
+
+
+def test_apply_lead_details_never_overwrites_a_good_answer():
+    from database import apply_lead_details
+    from models import Lead
+
+    lead = Lead(id="x", business_id="b", product="BMW X5", needs_callback=True)
+    apply_lead_details(lead, {"product": "BMW X3", "caller_email": "new@example.com",
+                              "needs_callback": False, "visit_type": "showroom"})
+    assert lead.product == "BMW X5", "an existing answer is stronger than a re-extraction"
+    assert lead.needs_callback is True
+    assert lead.caller_email == "new@example.com", "blanks should still be filled"
+    assert lead.visit_type == "showroom"
 
 
 if __name__ == "__main__":
     import pytest
     pytest.main([__file__, "-v"])
+
+
+# ── Dialling numbers the owner actually types ──────────────────────────────
+
+def test_to_e164_adds_default_country_code():
+    """'98765 43210' is what the portal's own placeholder suggests — it must work."""
+    from phone_service import to_e164
+    assert to_e164("98765 43210") == "+919876543210"
+    assert to_e164("9876543210") == "+919876543210"
+    assert to_e164("(98765) 432-10") == "+919876543210"
+
+
+def test_to_e164_leaves_country_coded_numbers_alone():
+    """Adding +91 to a number that already has it would produce a wrong number."""
+    from phone_service import to_e164
+    assert to_e164("+91 98765 43210") == "+919876543210"
+    assert to_e164("919876543210") == "+919876543210"
+    assert to_e164("+1 415 555 1234") == "+14155551234"
+    assert to_e164("+44 20 7946 0958") == "+442079460958"
+
+
+def test_to_e164_respects_configured_country(monkeypatch):
+    from phone_service import to_e164
+    monkeypatch.setenv("DEFAULT_COUNTRY_CODE", "1")
+    assert to_e164("4155551234") == "+14155551234"
+    assert to_e164("919876543210") == "+919876543210"  # already coded, untouched
+
+
+def test_to_e164_rejects_junk():
+    from phone_service import to_e164
+    assert to_e164("") == ""
+    assert to_e164("Rajesh Kumar") == ""
+    assert to_e164("12345") == ""  # too short to be a number we should dial
+
+
+def test_ten_digit_number_reaches_twilio_as_valid_e164(monkeypatch):
+    """The regression: a bare 10-digit number was sent as '+9876543210' → Twilio error 21211."""
+    import phone_service
+
+    captured = {}
+
+    class FakeResp:
+        status_code = 201
+        content = b'{"sid": "CAok"}'
+        def json(self):
+            return {"sid": "CAok"}
+
+    monkeypatch.setattr(
+        phone_service.requests, "post",
+        lambda url, data=None, auth=None, timeout=None: (
+            captured.update(data), FakeResp())[1],
+    )
+    monkeypatch.setenv("TWILIO_ACCOUNT_SID", "ACtest123")
+    monkeypatch.setenv("TWILIO_AUTH_TOKEN", "tok")
+    monkeypatch.setenv("TWILIO_PHONE_NUMBER", "+15551234567")
+
+    res = phone_service.place_call(to_number="98765 43210", answer_url="https://x/twilio/answer/a")
+    assert res["ok"] is True
+    assert captured["To"] == "+919876543210"
+
+
+def test_campaign_csv_numbers_are_normalised():
+    """Bulk upload accepts the same formats as the one-off box."""
+    from phone_service import parse_call_list
+    rows = [
+        {"name": "Rajesh", "mobile": "98765 43210", "info": "X5"},
+        {"name": "Priya", "number": "+91 98250 11223", "info": ""},
+        {"name": "Bad", "mobile": "n/a", "info": ""},
+    ]
+    clean, problems = parse_call_list(rows)
+    assert [r["number"] for r in clean] == ["+919876543210", "+919825011223"]
+    assert len(problems) == 1 and "n/a" in problems[0]  # names the bad number
+
+
+def test_humanizer_blames_the_customer_number_not_our_number():
+    """21211 is a malformed 'To' — telling the owner to check TWILIO_PHONE_NUMBER is wrong."""
+    from phone_service import _humanize_twilio_error as h
+    msg = "The 'To' number: +9876543210 is not a valid phone number, shortcode, or alphanumeric sender ID."
+    out = h("21211", msg)
+    assert "TWILIO_PHONE_NUMBER" not in out
+    assert "country code" in out.lower()
+
+
+def test_humanizer_separates_from_and_trial_errors():
+    from phone_service import _humanize_twilio_error as h
+    from_num = h("21210", "The 'From' phone number +15673353544 is not a verified caller ID.")
+    assert "verify the calling number" in from_num.lower()
+
+    to_num = h("21219", "The 'To' number: +919876543210 is not a verified caller ID.")
+    assert "on trial" in to_num.lower()
+    assert "verify this customer's number" in to_num.lower()
+
+
+def test_humanizer_keeps_real_unroutable_and_credit_wording():
+    from phone_service import _humanize_twilio_error as h
+    assert "can't be reached" in h("21216", "not a valid phone number for India")
+    assert "credit" in h("20003", "Account balance is too low").lower()
+
+
+def test_twilio_event_survives_an_empty_agent_reply(monkeypatch):
+    """An empty LLM reply must not 500 the webhook — the caller would hear dead air."""
+    import main as main_mod
+
+    data = _make_user(name="Silent Owner")
+    biz = _make_business(data["token"], name="Silent Motors")
+    bid = biz["business_id"]
+
+    seen = {}
+
+    async def fake_tts(text, language):
+        seen["text"] = text
+        return "reprompt.mp3"
+
+    monkeypatch.setattr("main.get_agent_response", lambda **kw: "")
+    monkeypatch.setattr("main.synthesize_speech", fake_tts)
+
+    r = _tw(f"/twilio/event/{bid}", data={"CallSid": "CA-silent-1", "SpeechResult": "hello?"})
+    assert r.status_code == 200, f"webhook 500'd on an empty reply: {r.text[:200]}"
+    assert "<Response>" in r.text and "<Play>" in r.text and "<Gather" in r.text
+    # it spoke the shared reprompt instead of nothing
+    assert seen["text"] and seen["text"].strip(), "TTS was handed empty text"
+
+
+def test_twilio_event_still_speaks_a_real_reply(monkeypatch):
+    """The guard must not swallow a genuine reply."""
+    import main as main_mod
+
+    data = _make_user(name="Talkative Owner")
+    biz = _make_business(data["token"], name="Talkative Motors")
+    bid = biz["business_id"]
+    seen = {}
+
+    async def fake_tts(text, language):
+        seen["text"] = text
+        return "answer.mp3"
+
+    monkeypatch.setattr("main.get_agent_response", lambda **kw: "Our timings are 9 to 7.")
+    monkeypatch.setattr("main.synthesize_speech", fake_tts)
+
+    r = _tw(f"/twilio/event/{bid}", data={"CallSid": "CA-talk-1", "SpeechResult": "timings?"})
+    assert r.status_code == 200, r.text
+    assert seen["text"] == "Our timings are 9 to 7."
+
+
+# ── Webhook authenticity (VULN-003) ───────────────────────────────────────
+# Cross-checked byte-for-byte against twilio-python's RequestValidator.
+
+def test_signature_matches_twilios_own_algorithm():
+    """If this drifts from Twilio, every genuine call gets rejected."""
+    from twilio_security import expected_signature
+    assert expected_signature(
+        "https://mycompany.com/myapp",
+        {
+            "CallSid": "CA1234567890ABCDE",
+            "Caller": "+12349013030",
+            "Digits": "1234",
+            "From": "+12349013030",
+            "To": "+18005551212",
+        },
+        "12345",
+    ) == "3KI2uRuYyAdhZIJXcpU0izDUzWI="
+
+
+def test_signature_accepts_url_with_or_without_default_port():
+    """Twilio's signing backend is inconsistent about :443 — accept both."""
+    from twilio_security import url_variants
+    assert "https://mycompany.com/myapp" in url_variants("https://mycompany.com/myapp")
+    assert "https://mycompany.com:443/myapp" in url_variants("https://mycompany.com/myapp")
+    assert "https://h.co/a" in url_variants("https://h.co:443/a")
+
+
+def test_unsigned_webhook_is_rejected():
+    """The attack this closes: anyone POSTing a fake speech result."""
+    business_id = _register_business()
+    r = client.post(
+        f"/twilio/event/{business_id}",
+        data={"CallSid": "CAforged", "SpeechResult": "I want a test drive"},
+    )
+    assert r.status_code == 403, f"forged webhook was accepted: {r.status_code}"
+
+
+def test_webhook_with_a_forged_signature_is_rejected():
+    business_id = _register_business()
+    r = client.post(
+        f"/twilio/event/{business_id}",
+        data={"CallSid": "CAforged2", "SpeechResult": "buy a car"},
+        headers={"X-Twilio-Signature": "totally-made-up-signature"},
+    )
+    assert r.status_code == 403, f"bad signature accepted: {r.status_code}"
+
+
+def test_signature_from_a_different_url_is_rejected():
+    """A captured signature replayed against another path must not work."""
+    from twilio_security import expected_signature
+    business_id = _register_business()
+    data = {"CallSid": "CAreplay", "SpeechResult": "hello"}
+    stolen = expected_signature("http://testserver/somewhere/else", data,
+                                os.getenv("TWILIO_AUTH_TOKEN", ""))
+    r = client.post(
+        f"/twilio/event/{business_id}", data=data,
+        headers={"X-Twilio-Signature": stolen},
+    )
+    assert r.status_code == 403, f"replayed signature accepted: {r.status_code}"
+
+
+def test_every_twilio_webhook_rejects_unsigned_posts():
+    """No endpoint may be left open — that is how leads got injected."""
+    business_id = _register_business()
+    for path in (
+        f"/twilio/answer/{business_id}",
+        f"/twilio/outbound-answer/whatever",
+        f"/twilio/event/{business_id}",
+        f"/twilio/status/{business_id}",
+    ):
+        r = client.post(path, data={"CallSid": "CAopen"})
+        assert r.status_code == 403, f"{path} accepted an unsigned POST ({r.status_code})"
+
+
+# ── Postgres readiness (cloud deploys have an ephemeral disk) ──────────────
+
+def test_render_style_postgres_url_is_normalised():
+    """Render hands back postgres://; SQLAlchemy 2.x only speaks postgresql://."""
+    from database import normalise_url
+    from sqlalchemy.engine import make_url
+    url = normalise_url("postgres://u:p@host:5432/voxagent")
+    assert url == "postgresql://u:p@host:5432/voxagent"
+    dialect = make_url(url).get_dialect()
+    assert dialect.name == "postgresql"
+    assert "postgresql" in dialect.__module__
+
+
+def test_normalise_url_leaves_sqlite_and_postgres_alone():
+    from database import normalise_url
+    assert normalise_url("sqlite:///./x.db") == "sqlite:///./x.db"
+    assert normalise_url("postgresql://u:p@h/db") == "postgresql://u:p@h/db"
+
+
+def test_postgres_engine_builds_without_sqlite_only_connect_args():
+    """check_same_thread is a SQLite argument — Postgres rejects it at connect time."""
+    from sqlalchemy import create_engine
+    from database import normalise_url
+    # engine creation is lazy, so this proves the URL + kwargs are accepted
+    # without needing a live server
+    eng = create_engine(normalise_url("postgres://u:p@h:5432/voxagent"),
+                        connect_args={}, pool_pre_ping=True)
+    assert eng.dialect.name == "postgresql"
+
+
+def test_every_model_compiles_to_postgres_ddl():
+    """A length-less String or SQLite-only type would only fail once deployed."""
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.schema import CreateTable
+    from models import Base
+
+    dialect = postgresql.dialect()
+    for table in Base.metadata.sorted_tables:
+        ddl = str(CreateTable(table).compile(dialect=dialect))
+        assert table.name.upper() in ddl.upper(), f"{table.name} produced no DDL"
+        for col in table.columns:
+            col.type.compile(dialect=dialect)
+
+
+def test_migration_script_refuses_a_sqlite_target():
+    """It must never be a no-op that looks like it worked."""
+    import subprocess, sys
+    out = subprocess.run(
+        [sys.executable, "migrate_to_postgres.py", "--target", "sqlite:///./x.db"],
+        capture_output=True, text=True,
+    )
+    assert out.returncode != 0
+    assert "SQLite" in (out.stdout + out.stderr)

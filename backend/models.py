@@ -72,6 +72,14 @@ class Lead(Base):
     interest = Column(Text, nullable=True)          # what they asked about
     intent = Column(String(50), nullable=True)      # pricing | test_drive | appointment | info | complaint | other
     scheduled_for = Column(String(255), nullable=True)  # e.g. "tomorrow 5pm" (free text)
+    # ── the detail columns the Insights table shows ──
+    caller_email = Column(String(255), nullable=True)   # email they asked us to send things to
+    product = Column(String(255), nullable=True)        # which product/service they want
+    visit_type = Column(String(30), nullable=True)      # test_drive | showroom | service | pickup | none
+    visit_at = Column(String(32), nullable=True)        # resolved ISO "YYYY-MM-DD HH:MM" when we can
+    needs_callback = Column(Boolean, default=False)     # should the owner ring them back?
+    callback_reason = Column(String(255), nullable=True)  # why the callback is needed
+    requested_material = Column(String(255), nullable=True)  # brochure | price list | EMI sheet | none
     notes = Column(Text, nullable=True)
     status = Column(String(30), default="new")      # new | contacted | converted | closed
     created_at = Column(DateTime, default=datetime.now, nullable=False)

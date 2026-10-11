@@ -1,0 +1,53 @@
+# render.yaml — Render blueprint for VoxAgent
+# ─────────────────────────────────────────────
+# Owner  : Buffy
+#
+# Deploy: push this repo to GitHub, then in Render choose
+#          "New +" -> "Blueprint" -> pick the repo. Render reads this file.
+#
+# Set the secrets marked sync:false in the Render dashboard (or let Render
+# prompt you). Nothing sensitive is committed here.
+# ─────────────────────────────────────────────
+services:
+  - type: web
+    name: voxagent
+    runtime: docker          # uses the Dockerfile at the repo root
+    plan: free
+    region: singapore        # closest to India — lower voice latency
+    healthCheckPath: /api/health
+    autoDeploy: false        # opt in explicitly once you see it working
+    envVars:
+      # ── wired automatically by Render ──
+      - key: DATABASE_URL
+        fromDatabase:
+          name: voxagent-db
+          property: connectionString
+      - key: PUBLIC_BASE_URL
+        fromService:
+          type: web
+          name: voxagent
+          envVarKey: RENDER_EXTERNAL_URL
+
+      # ── you must fill these in ──
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_PHONE_NUMBER
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: LLM_MODEL
+        value: openai/gpt-oss-120b
+      - key: SECRET_KEY
+        generateValue: true    # Render creates a strong one
+      - key: DEFAULT_COUNTRY_CODE
+        value: "91"
+      - key: LOG_LEVEL
+        value: INFO
+
+databases:
+  - name: voxagent-db
+    plan: free
+    databaseName: voxagent
+    user: voxagent

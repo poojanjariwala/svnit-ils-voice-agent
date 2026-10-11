@@ -224,42 +224,117 @@ _EXTRACT_PROMPT = """You are a CRM assistant. Given a phone conversation (caller
 Return ONLY a JSON object with these keys (use null for unknown):
 - "caller_name": string or null
 - "caller_number": string or null (mobile/phone number the caller gave, digits)
+- "caller_email": string or null (email the caller gave or asked us to send details to)
 - "interest": short string describing what they asked about (e.g. "BMW X5 test drive")
+- "product": the specific product, model or service they are interested in (e.g. "BMW X5", "loan against property"). null if they did not name one.
 - "intent": one of "pricing", "test_drive", "appointment", "visit", "info", "complaint", "other"
+- "visit_type": one of "test_drive", "showroom", "service", "pickup", "none" — what kind of visit they booked or asked about, "none" if there was no visit at all.
 - "scheduled_for": string or null (any visit/test-drive/appointment timing they agreed to, e.g. "tomorrow 5pm")
+- "visit_at": string or null — the SAME visit timing resolved to "YYYY-MM-DD HH:MM" if the conversation makes the date unambiguous (use today's date as the base for words like "tomorrow"). null if you cannot work it out.
+- "needs_callback": true or false — should the business ring this person back?
+- "callback_reason": short string or null — what exactly the callback is for (e.g. "send the EMI sheet")
+- "requested_material": one of "brochure", "price_list", "emi_sheet", "warranty", "none" — did the caller ask for a document to be sent?
 - "notes": one short sentence summarizing the caller
+
+Rules:
+- Only report what the caller actually asked for or agreed to. Never guess a product name.
+- "needs_callback" is true when they asked for a callback, said to call back, or left something unfinished.
+- Set "requested_material" to "none" when no document was discussed.
 
 Conversation:
 {conversation}
 
 JSON only, no explanations."""
 
+# Words that mean "they want a call back", across the three languages we answer in.
+_CALLBACK_WORDS = re.compile(
+    r"\b(call back|callback|call me back|ring me|phone me|"
+    r"मेंहे|फोन कीजिए|फोन कर|कॉल कीजिए|"
+    r"ફોન કર|કૉલ કર|પાછો ફોન)\b",
+    re.IGNORECASE,
+)
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]{2,}")
+# Ordered: the first pattern that matches wins, so test_drive beats a bare visit.
+_VISIT_PATTERNS = (
+    ("test_drive", re.compile(r"\b(test drive|test-drive|ટેસ્ટ ડ્રાઇવ|टेस्ट ड्राइव)\b", re.IGNORECASE)),
+    ("service",    re.compile(r"\b(service|servicing|repair|गैराज|સર્વિસ)\b", re.IGNORECASE)),
+    ("pickup",     re.compile(r"\b(pick ?up|collect|delivery|ले जा|લે જાઓ)\b", re.IGNORECASE)),
+    ("showroom",   re.compile(r"\b(showroom|come and see|visit the store|सोरूम|शोरूम|स्टोर पर)\b", re.IGNORECASE)),
+)
+_MATERIAL_PATTERNS = (
+    ("emi_sheet",  re.compile(r"\b(emi|loan (sheet|calculator)|interest rate|EMI कैलकुलेटर|EMI ગણતરી)\b", re.IGNORECASE)),
+    ("price_list", re.compile(r"\b(price list|price sheet|rate card|mrp list|प्राइस लिस्ट|કિંમત યાદી)\b", re.IGNORECASE)),
+    ("brochure",   re.compile(r"\b(brochure|catalog|छपाई|બ્રોશર|brochure)\b", re.IGNORECASE)),
+)
+
+
+def _regex_details(all_text: str) -> dict:
+    """Cheap structured detail, used on its own when the LLM is unavailable
+    and to backstop any field the model left null."""
+    found = {
+        "caller_email": None,
+        "product": None,
+        "visit_type": "none",
+        "visit_at": None,
+        "needs_callback": bool(_CALLBACK_WORDS.search(all_text)),
+        "callback_reason": None,
+        "requested_material": "none",
+    }
+    m = _EMAIL_RE.search(all_text)
+    if m:
+        found["caller_email"] = m.group(0)[:255]
+
+    for name, pattern in _VISIT_PATTERNS:
+        if pattern.search(all_text):
+            found["visit_type"] = name
+            break
+
+    for name, pattern in _MATERIAL_PATTERNS:
+        if pattern.search(all_text):
+            found["requested_material"] = name
+            break
+
+    if found["needs_callback"]:
+        found["callback_reason"] = "asked to be called back"
+    return found
+
 
 def extract_lead_info(conversation_history: list) -> dict:
     """
     Extract structured lead info from a call's conversation history.
-    Falls back to regex-based phone/name heuristics if the LLM fails.
-    Returns dict with caller_name, caller_number, interest, intent,
-    scheduled_for, notes.
+    Falls back to regex heuristics if the LLM fails.
+    Returns dict with caller_name, caller_number, caller_email, interest,
+    product, intent, visit_type, scheduled_for, visit_at, needs_callback,
+    callback_reason, requested_material, notes.
     """
     result = {
         "caller_name": None,
         "caller_number": None,
+        "caller_email": None,
         "interest": None,
+        "product": None,
         "intent": "other",
+        "visit_type": "none",
         "scheduled_for": None,
+        "visit_at": None,
+        "needs_callback": False,
+        "callback_reason": None,
+        "requested_material": "none",
         "notes": None,
     }
     if not conversation_history:
         return result
 
-    # Cheap pre-pass: find a phone number in the conversation
+    # Cheap pre-pass: find a phone number and an email in the conversation
     all_text = " ".join(
         str(t.get("content", "")) for t in conversation_history if isinstance(t, dict)
     )
     m = re.search(r"(\+?\d[\d\s\-]{8,14}\d)", all_text)
     if m:
         result["caller_number"] = re.sub(r"[^\d+]", "", m.group(1))[:15]
+
+    # Regex pass first: if the LLM never answers, these fields are still filled.
+    result.update(_regex_details(all_text))
 
     transcript = "\n".join(
         f"{'CALLER' if t.get('role') == 'user' else 'AGENT'}: {t.get('content','')}"
@@ -283,10 +358,24 @@ def extract_lead_info(conversation_history: list) -> dict:
         if start != -1 and end != -1:
             data = json.loads(raw[start:end + 1])
             for key in result:
+                if key == "needs_callback":
+                    continue  # handled below — stringifying True would store "True"
                 if data.get(key):
                     result[key] = str(data[key]).strip()
+            if data.get("needs_callback"):
+                result["needs_callback"] = True
             if result["intent"] not in ("pricing", "test_drive", "appointment", "visit", "info", "complaint", "other"):
                 result["intent"] = "other"
+            if result["visit_type"] not in ("test_drive", "showroom", "service", "pickup", "none"):
+                result["visit_type"] = "none"
+            if result["requested_material"] not in ("brochure", "price_list", "emi_sheet", "warranty", "none"):
+                result["requested_material"] = "none"
+            # Only trust a visit_at that is actually a date we can sort on.
+            if result["visit_at"] and not re.match(
+                r"^\d{4}-\d{2}-\d{2}( \d{2}:\d{2})?$", result["visit_at"]
+            ):
+                logger.info("Dropping unparseable visit_at %r", result["visit_at"])
+                result["visit_at"] = None
             # LLM may find a number the regex missed
             if not result["caller_number"] and data.get("caller_number"):
                 result["caller_number"] = re.sub(r"[^\d+]", "", str(data["caller_number"]))[:15]

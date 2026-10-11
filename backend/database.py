@@ -20,18 +20,45 @@
 # TODO: Add full database implementation here
 # ─────────────────────────────────────────────
 import os
+import logging
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from models import Base, Business, Call, Conversation, Analytics, Lead, Campaign, OutboundCall
 from datetime import datetime, timedelta
 import uuid
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./business_voice_agents.db")
+logger = logging.getLogger("voxagent.db")
+
+def normalise_url(url: str) -> str:
+    """
+    Render (and a few other hosts) hand back a "postgres://" URL. SQLAlchemy 2.x
+    only speaks "postgresql://", so fix it before building the engine.
+    """
+    if url.startswith("postgres://"):
+        return "postgresql://" + url[len("postgres://"):]
+    return url
+
+
+DATABASE_URL = normalise_url(os.getenv("DATABASE_URL", "sqlite:///./business_voice_agents.db"))
+
+_IS_SQLITE = DATABASE_URL.startswith("sqlite")
 
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False}
+    # SQLite-only argument; passing it to Postgres raises at connect time.
+    connect_args={"check_same_thread": False} if _IS_SQLITE else {},
+    pool_pre_ping=True,      # Postgres drops idle connections; reconnect instead of erroring
 )
+
+
+def init_schema() -> None:
+    """
+    Build any missing tables. Cheap and idempotent, and safe to call on every
+    boot — on a cloud host there is no init_db.py run, so without this the
+    first request would hit "relation does not exist".
+    """
+    from models import Base
+    Base.metadata.create_all(bind=engine)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -106,6 +133,74 @@ def get_call_conversations(db, call_id: str):
     return db.query(Conversation).filter(Conversation.call_id == call_id).order_by(Conversation.timestamp).all()
 
 
+# ── schema migration ──────────────────────────────────────────────
+# Base.metadata.create_all() only creates MISSING TABLES. It never adds a
+# column to a table that already exists — so a new field on Lead would make
+# every SELECT against leads throw "no such column" on an existing database.
+# This walks the model and adds whatever the live schema is missing.
+DETAIL_FIELDS = (
+    "caller_email", "product", "visit_type", "visit_at",
+    "needs_callback", "callback_reason", "requested_material",
+)
+
+
+def migrate_missing_columns(target=None, tables=(Lead,)) -> list:
+    """ALTER TABLE ADD COLUMN for any model column the database lacks.
+
+    Returns the names it added. Safe to run on every startup: existing
+    columns are left alone and SQLite's ALTER is a no-op for them.
+    """
+    from sqlalchemy import inspect, text
+
+    added = []
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+
+    for model in tables:
+        table = model.__tablename__
+        if table not in existing_tables:
+            continue  # create_all() will build it whole, columns included
+        present = {c["name"] for c in inspector.get_columns(table)}
+        for col in model.__table__.columns:
+            if col.name in present:
+                continue
+            if col.primary_key or col.unique or col.foreign_keys:
+                logger.warning(
+                    "Cannot auto-add %s.%s (primary/unique/foreign key) — run it by hand",
+                    table, col.name,
+                )
+                continue
+            ddl = f'ALTER TABLE {table} ADD COLUMN "{col.name}" {col.type.compile(engine.dialect)}'
+            with engine.begin() as conn:
+                conn.execute(text(ddl))
+            added.append(f"{table}.{col.name}")
+    if added:
+        logger.info("Migrated schema — added columns: %s", ", ".join(added))
+    return added
+
+
+def apply_lead_details(lead: Lead, info: dict) -> Lead:
+    """Copy the extracted detail fields onto a Lead, leaving blanks alone.
+
+    Backfilling runs this over leads that already have some of these set,
+    so only None/absent values are filled — an existing answer is never
+    overwritten by a weaker re-extraction.
+    """
+    for name in DETAIL_FIELDS:
+        if name not in info:
+            continue
+        value = info.get(name)
+        if value is None or value == "":
+            continue
+        if name == "needs_callback":
+            if not getattr(lead, name, None):
+                setattr(lead, name, bool(value))
+            continue
+        if not getattr(lead, name, None):
+            setattr(lead, name, value)
+    return lead
+
+
 def create_lead_record(db, business_id: str, call_id: str, info: dict):
     """Save extracted lead info; skip if there is nothing useful"""
     has_content = any(info.get(k) for k in ("caller_name", "caller_number", "interest", "scheduled_for"))
@@ -124,6 +219,7 @@ def create_lead_record(db, business_id: str, call_id: str, info: dict):
         status="new",
         created_at=datetime.now(),
     )
+    apply_lead_details(lead, info)
     db.add(lead)
     db.commit()
     db.refresh(lead)

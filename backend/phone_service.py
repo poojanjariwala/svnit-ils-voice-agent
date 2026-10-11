@@ -10,6 +10,7 @@
 # the dashboard shows it in plain words instead of failing silently.
 # ─────────────────────────────────────────────
 import os
+import re
 import time
 import secrets
 import logging
@@ -67,6 +68,31 @@ def vonage_configured() -> bool:
     )
 
 
+def to_e164(number: str) -> str:
+    """
+    Normalise whatever the owner typed into something Twilio will accept.
+
+    People type "98765 43210" or "+91 98765 43210" — both should work.
+    A bare 10-digit national number gets DEFAULT_COUNTRY_CODE (default 91,
+    India) prepended; anything already country-coded is left alone.
+    Returns "" for anything too short or not a number at all.
+    """
+    raw = re.sub(r"[^0-9+]", "", str(number or ""))
+    if raw.startswith("+"):
+        raw = raw[1:]
+    if not raw.isdigit() or len(raw) < 7:
+        # Nothing diallable here — names, "n/a", stray punctuation, short codes.
+        return ""
+    cc = re.sub(r"\D", "", os.getenv("DEFAULT_COUNTRY_CODE", "91"))
+    # Already country-coded, e.g. 919876543210 or 14155551234.
+    if cc and raw.startswith(cc) and len(raw) > 10:
+        return f"+{raw}"
+    # A bare national number, e.g. 9876543210.
+    if len(raw) == 10 and cc:
+        return f"+{cc}{raw}"
+    return f"+{raw}"
+
+
 def twilio_configured() -> bool:
     return bool(
         os.getenv("TWILIO_ACCOUNT_SID", "").startswith("AC")
@@ -107,11 +133,16 @@ def _place_call_twilio(
     """Dial via Twilio's REST API (Basic auth, form-encoded)."""
     sid = os.getenv("TWILIO_ACCOUNT_SID", "")
     token = os.getenv("TWILIO_AUTH_TOKEN", "")
-    frm = (from_number or os.getenv("TWILIO_PHONE_NUMBER", "")).strip()
-    # E.164 for both legs
-    to = to_number if to_number.startswith("+") else "+" + to_number.lstrip("+")
-    if not frm.startswith("+"):
-        frm = "+" + frm.lstrip("+")
+    # E.164 for both legs — "98765 43210" and "+919876543210" both work.
+    to = to_e164(to_number)
+    frm = to_e164(from_number or os.getenv("TWILIO_PHONE_NUMBER", ""))
+
+    if not to:
+        return {
+            "ok": False,
+            "call_uuid": None,
+            "detail": "That doesn't look like a phone number.",
+        }
 
     if not (sid and token and frm):
         return {
@@ -146,15 +177,41 @@ def _place_call_twilio(
 
 
 def _humanize_twilio_error(code: str, message: str) -> str:
+    """
+    One honest sentence the owner can act on. Twilio's raw codes are useless
+    to a car-dealer, and a wrong sentence sends them fixing the wrong thing —
+    so the 'To' (customer) and 'From' (our number) cases are kept apart.
+    """
     d = f"{code} {message}".lower()
-    if "verif" in d or "trial" in d and "unverified" in d:
-        return "Twilio trial accounts can only call numbers verified in the Twilio console — verify this mobile number first (it takes 30 seconds)."
-    if code == "21211" or "invalid" in d and "from" in d or "not yours" in d:
-        return "The caller number isn't valid for this Twilio account — check TWILIO_PHONE_NUMBER in the settings."
+
+    # 21210 — OUR number isn't verified as an outgoing caller ID.
+    if code == "21210" or ("from" in d and "verif" in d):
+        return ("The number Meera calls from isn't verified on this Twilio account — "
+                "verify the calling number in the Twilio console (Phone Numbers → Verified Caller IDs).")
+
+    # 21219 — trial account dialling a customer number nobody has verified.
+    if code == "21219" or code == "21215" or ("trial" in d and "verif" in d):
+        return ("This Twilio account is still on trial, so it can only call numbers that have been "
+                "verified in the Twilio console — verify this customer's number first (it takes 30 seconds).")
+
+    # 21211 — the number we dialled is malformed, almost always a missing country code.
+    if code == "21211" or ("invalid" in d and "'to'" in d):
+        return ("That number isn't in international format — enter it with its country code, "
+                "for example +91 98765 43210.")
+
+    # The From number is the wrong shape for this account.
+    if ("from" in d and ("invalid" in d or "not yours" in d or "not owned" in d)):
+        return "The number Meera calls from isn't valid for this Twilio account — check TWILIO_PHONE_NUMBER in the settings."
+
     if "balance" in d or "credit" in d or "quota" in d:
         return "Twilio account has no calling credit left — check your trial balance in the Twilio console."
+
     if "unroutable" in d or "invalid destination" in d or code == "21216":
         return "That phone number can't be reached from your Twilio account."
+
+    if code == "20001" or ("authenticate" in d and "password" in d):
+        return "Twilio rejected the account SID or auth token — check TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN in the settings."
+
     return f"Phone network said: {message}"
 
 
@@ -176,9 +233,20 @@ def _place_call_vonage(
             "detail": "Phone calling isn't connected yet — " + " and ".join(missing) + " are missing from the settings.",
         }
 
+    # Vonage wants bare digits, no country-code '+'.
+    to = to_e164(to_number).lstrip("+")
+    frm = to_e164(from_number or os.getenv("VONAGE_PHONE_NUMBER", "")).lstrip("+")
+
+    if not to:
+        return {
+            "ok": False,
+            "call_uuid": None,
+            "detail": "That doesn't look like a phone number.",
+        }
+
     body = {
-        "to": [{"type": "phone", "number": to_number}],
-        "from": {"type": "phone", "number": (from_number or os.getenv("VONAGE_PHONE_NUMBER", "")).replace("+", "")},
+        "to": [{"type": "phone", "number": to}],
+        "from": {"type": "phone", "number": frm},
         "answer_url": [answer_url],
         "answer_method": "POST",
     }
@@ -239,10 +307,10 @@ def parse_call_list(rows: list) -> tuple[list, list]:
         number = str(number).strip() if number is not None else ""
         info = str(info).strip() if info is not None else ""
 
-        # digits-only check (allow leading +)
-        digits = number.replace(" ", "").replace("-", "").replace("+", "")
-        if not digits.isdigit() or len(digits) < 10:
+        # Store the E.164 form so the dialer sends something Twilio accepts.
+        e164 = to_e164(number)
+        if not e164 or len(e164.lstrip("+")) < 10:
             problems.append(f"Row {i}: '{number or 'empty'}' doesn't look like a phone number — skipped")
             continue
-        clean.append({"name": name, "number": number, "info": info})
+        clean.append({"name": name, "number": e164, "info": info})
     return clean, problems

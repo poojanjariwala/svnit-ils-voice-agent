@@ -44,11 +44,13 @@ from database import increment_call_count, create_call_record, complete_call, ge
 from database import get_businesses_by_owner, get_owner_analytics
 from database import save_conversation, create_lead_record, get_leads_for_business, get_leads_for_owner
 from database import start_call, get_call_transcripts_for_owner
+from database import migrate_missing_columns, apply_lead_details, DETAIL_FIELDS, init_schema
 from database import create_campaign, create_single_outbound, get_campaign_with_calls, get_outbound_for_owner, mark_outbound
 from auth import get_current_user, hash_password, verify_password, create_token
-from models import User, Lead, Campaign, OutboundCall
+from models import User, Lead, Campaign, OutboundCall, Conversation
 import phone_service
 from phone_service import place_call, vonage_configured, twilio_configured, active_provider, parse_call_list
+from twilio_security import verify_twilio_request
 from llm_service import extract_lead_info, generate_outbound_opener
 
 # LOGGING
@@ -427,15 +429,70 @@ async def list_leads(
                 "business_id": l.business_id,
                 "caller_name": l.caller_name,
                 "caller_number": l.caller_number,
+                "caller_email": l.caller_email,
                 "interest": l.interest,
+                "product": l.product,
                 "intent": l.intent,
+                "visit_type": l.visit_type,
                 "scheduled_for": l.scheduled_for,
+                "visit_at": l.visit_at,
+                "needs_callback": bool(l.needs_callback),
+                "callback_reason": l.callback_reason,
+                "requested_material": l.requested_material,
                 "notes": l.notes,
                 "status": l.status,
                 "created_at": l.created_at.isoformat(),
             }
             for l in leads
         ]
+    }
+
+
+@app.post("/api/leads/reextract", tags=["Insights"])
+async def reextract_lead_details(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Re-run extraction over stored transcripts to fill in detail columns.
+
+    Leads captured before these fields existed have them empty. This walks the
+    owner's calls, re-extracts, and only fills blanks — existing answers and
+    any status the owner already set are left alone. Costs one LLM call per call.
+    """
+    leads = get_leads_for_owner(db, user.id)
+    filled = 0
+    scanned = 0
+    for lead in leads:
+        if not lead.call_id:
+            continue
+        rows = (
+            db.query(Conversation)
+            .filter(Conversation.call_id == lead.call_id)
+            .order_by(Conversation.timestamp)
+            .all()
+        )
+        if not rows:
+            continue
+        scanned += 1
+        # each stored row is one exchange: caller said X, Meera replied Y
+        history = []
+        for r in rows:
+            history.append({"role": "user", "content": r.user_message})
+            history.append({"role": "assistant", "content": r.agent_response})
+        try:
+            info = extract_lead_info(history)
+        except Exception as e:
+            logger.warning(f"Re-extraction failed for lead {lead.id}: {e}")
+            continue
+        before = {f: getattr(lead, f, None) for f in DETAIL_FIELDS}
+        apply_lead_details(lead, info)
+        if any(getattr(lead, f, None) != before[f] for f in DETAIL_FIELDS):
+            filled += 1
+    db.commit()
+    return {
+        "leads_scanned": scanned,
+        "leads_updated": filled,
+        "message": f"Filled details on {filled} of {scanned} callers.",
     }
 
 
@@ -1110,8 +1167,14 @@ def _twiml_play(audio_filename: str) -> str:
 
 
 @app.post("/twilio/answer/{business_id}", tags=["Voice"])
-async def twilio_answer(business_id: str, db: Session = Depends(get_db)):
+async def twilio_answer(business_id: str, request: Request, db: Session = Depends(get_db)):
     """Twilio bridges here when a customer's phone rings — TwiML twin of /voice/answer"""
+    try:
+        form = dict(await request.form())
+    except Exception:
+        form = {}
+    verify_twilio_request(request, form)
+
     business = get_business_record(db, business_id)
     if not business:
         return Response(content="<Response><Hangup/></Response>", media_type="application/xml")
@@ -1128,9 +1191,15 @@ async def twilio_answer(business_id: str, db: Session = Depends(get_db)):
 
 
 @app.post("/twilio/outbound-answer/{outbound_id}", tags=["Voice"])
-async def twilio_outbound_answer(outbound_id: str, db: Session = Depends(get_db)):
+async def twilio_outbound_answer(outbound_id: str, request: Request, db: Session = Depends(get_db)):
     """Twilio bridges here when WE call a customer — TwiML twin of /voice/outbound-answer"""
     from llm_service import generate_outbound_opener
+
+    try:
+        form = dict(await request.form())
+    except Exception:
+        form = {}
+    verify_twilio_request(request, form)
 
     oc = db.query(OutboundCall).filter(OutboundCall.id == outbound_id).first()
     biz = get_business_record(db, oc.business_id) if oc else None
@@ -1174,6 +1243,7 @@ async def twilio_event(business_id: str, request: Request, db: Session = Depends
         payload = dict(await request.form())
     except Exception:
         payload = {}
+    verify_twilio_request(request, payload)
     if not payload:
         try:
             payload = await request.json()
@@ -1236,6 +1306,12 @@ async def twilio_event(business_id: str, request: Request, db: Session = Depends
         customer_query=customer_query,
         conversation_history=session["history"],
     )
+    # The model occasionally hands back nothing. Synthesising an empty string
+    # raises inside TTS, which 500s this webhook — the caller would hear dead air
+    # for the rest of the call. Speak the same reprompt we use after a pause.
+    if not (response_text or "").strip():
+        logger.warning(f"Empty agent reply on call {call_id} — speaking the reprompt instead")
+        response_text = REPROMPT_TEXTS.get(business.language, REPROMPT_TEXTS["en"])
     try:
         save_conversation(db, str(uuid.uuid4())[:12], call_id, customer_query, response_text)
     except Exception as e:
@@ -1253,6 +1329,7 @@ async def twilio_status(business_id: str, request: Request, db: Session = Depend
         payload = dict(await request.form())
     except Exception:
         payload = {}
+    verify_twilio_request(request, payload)
     call_status = (payload.get("CallStatus") or "").strip().lower()
     call_sid = (payload.get("CallSid") or "").strip()
     logger.info(f"Twilio call status: {call_status} (sid {call_sid[:16]}…)")
@@ -1287,6 +1364,8 @@ if os.path.isdir(FRONTEND_DIR):
 @app.on_event("startup")
 async def startup_event():
     logger.info("🚀 AI Voice Agent Backend Starting...")
+    init_schema()               # a cloud container has no tables unless we make them
+    migrate_missing_columns()   # before any query touches leads
     logger.info(f"Public URL: {_public()}")
 
 if __name__ == "__main__":
