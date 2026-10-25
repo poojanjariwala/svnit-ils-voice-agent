@@ -122,3 +122,17 @@ class Analytics(Base):
     total_calls = Column(Integer, default=0)
     total_duration_seconds = Column(Integer, default=0)
     average_response_time = Column(Integer, default=0)
+
+
+class Consent(Base):
+    """Customer consent tracking for commercial telephony under TRAI regulations."""
+    __tablename__ = "consents"
+
+    id = Column(String(50), primary_key=True)
+    business_id = Column(String(50), ForeignKey("businesses.id"), nullable=False, index=True)
+    phone_number = Column(String(20), nullable=False, index=True)
+    opted_in = Column(Boolean, default=True, nullable=False)
+    opted_in_date = Column(DateTime, default=datetime.utcnow, nullable=False)
+    opted_out_date = Column(DateTime, nullable=True)
+    source = Column(String(50), default="manual")
+

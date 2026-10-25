@@ -28,6 +28,16 @@ if _TEST_DB.exists():
 # SQLAlchemy wants forward slashes, even for a Windows absolute path.
 os.environ["DATABASE_URL"] = f"sqlite:///{_TEST_DB.as_posix()}"
 
+# The /twilio/* webhook tests assert that unsigned and forged requests are
+# rejected with 403. twilio_security.verify_twilio_request() skips verification
+# entirely when TWILIO_AUTH_TOKEN is empty (so a local dev box without a .env
+# still demos), which would make those tests assert nothing. Pin a token here
+# so the signature path is genuinely exercised. load_dotenv() in main.py does
+# not override existing vars, and _tw() reads the same env var to sign its
+# requests, so signing stays consistent. Set only if the environment hasn't
+# already provided one.
+os.environ.setdefault("TWILIO_AUTH_TOKEN", "test-auth-token-0123456789abcdef")
+
 # Only init_db.py ever called create_all(), so a brand-new file has no
 # tables at all — the suite used to pass only because it inherited the
 # already-populated production file. Build the schema explicitly now.

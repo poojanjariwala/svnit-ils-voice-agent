@@ -650,7 +650,9 @@
   </footer>
 
   <script>
-    const API_BASE = "http://localhost:8000";
+    // Same-origin whenever the backend serves this page (any port, tunnel,
+    // production); localhost fallback only for opening the file from disk.
+    const API_BASE = window.location.protocol.startsWith("http") ? "" : "http://localhost:8000";
     const token = localStorage.getItem('voxagent_token');
     const authHeaders = { Authorization: `Bearer ${token}` };
     const fmtNum = new Intl.NumberFormat('en-IN');
@@ -707,6 +709,7 @@
 
     function showView(which) {
       if (!TABS.includes(which)) which = 'create';
+      if (which === 'create' && !document.getElementById('result-wrap').classList.contains('hidden')) resetWizard();
       for (const v of TABS) {
         document.getElementById('view-' + v).classList.toggle('hidden', v !== which);
         const btn = document.getElementById('nav-' + v);
@@ -1112,12 +1115,23 @@
         document.getElementById('result-wrap').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         loadInsights();
         loadBusinessChip();
+        btnText.textContent = 'Agent created ✓';  // stays disabled — re-arming it would let a stray second click duplicate the agent
       } catch (e) {
         showError(e.message);
-      } finally {
-        btn.disabled = false;
+        btn.disabled = false;                      // only a failure re-arms the button, so the owner can retry
         btnText.textContent = 'Create my voice agent';
       }
+    }
+
+    // A finished wizard is a one-shot: coming back to this tab afterwards
+    // starts a fresh one, so "Create agent" in the rail stays a real path to
+    // a second agent instead of a dead end behind the disabled button.
+    function resetWizard() {
+      document.getElementById('result-wrap').classList.add('hidden');
+      errorMsg.classList.add('hidden');
+      const btn = document.getElementById('submitBtn');
+      btn.disabled = false;
+      document.getElementById('btnText').textContent = 'Create my voice agent';
     }
 
     function showError(msg) { errorMsg.textContent = msg; errorMsg.classList.remove('hidden'); }

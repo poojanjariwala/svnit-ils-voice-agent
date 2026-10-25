@@ -235,7 +235,9 @@
   </main>
 
   <script>
-    const API_BASE = "http://localhost:8000";
+    // Same-origin whenever the backend serves this page (any port, tunnel,
+    // production); localhost fallback only for opening the file from disk.
+    const API_BASE = window.location.protocol.startsWith("http") ? "" : "http://localhost:8000";
     const params = new URLSearchParams(location.search);
     showTab(params.get('mode') === 'signup' ? 'signup' : 'login');
     syncThemeBtn();

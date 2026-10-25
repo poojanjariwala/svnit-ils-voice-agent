@@ -1,71 +1,22 @@
 # backend/phone_service.py
 # ─────────────────────────────────────────────
-# Task   : Outbound dialing via the Vonage Voice REST API.
+# Task   : Outbound dialing via the Twilio Voice REST API.
 #
-# Auth: the Voice API requires a signed JWT (application ID + private
-# key), NOT the account key/secret (those are valid for the account
-# APIs only). We auto-created the Vonage application and key.
+# Twilio is called over plain HTTPS with Basic auth — no SDK needed.
 #
 # Honest failure: every failure returns a human-friendly detail —
 # the dashboard shows it in plain words instead of failing silently.
 # ─────────────────────────────────────────────
 import os
 import re
-import time
-import secrets
 import logging
+from urllib.parse import urlparse
 
 import requests
-import jwt as pyjwt
 
 logger = logging.getLogger(__name__)
 
-VONAGE_REST_URL = "https://api.nexmo.com/v1/calls"
 TWILIO_CALLS_URL = "https://api.twilio.com/2010-04-01/Accounts/{sid}/Calls.json"
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-
-def _application_id() -> str:
-    return os.getenv("VONAGE_APPLICATION_ID", "")
-
-
-def _private_key() -> str:
-    path = os.getenv("VONAGE_PRIVATE_KEY_PATH", "")
-    if path and os.path.isabs(path):
-        full = path
-    elif path:
-        full = os.path.join(BASE_DIR, path)
-    else:
-        full = os.path.join(BASE_DIR, "vonage_private.key")
-    try:
-        with open(full, encoding="utf-8") as f:
-            return f.read()
-    except OSError:
-        return ""
-
-
-def _jwt() -> str:
-    """Sign a short-lived Vonage Voice JWT"""
-    app_id = _application_id()
-    now = int(time.time())
-    payload = {
-        "iss": app_id,
-        "application_id": app_id,
-        "iat": now,
-        "exp": now + 900,
-        "jti": secrets.token_hex(16),
-    }
-    return pyjwt.encode(payload, _private_key(), algorithm="RS256")
-
-
-def vonage_configured() -> bool:
-    return bool(
-        os.getenv("VONAGE_API_KEY")
-        and os.getenv("VONAGE_API_SECRET")
-        and _application_id()
-        and _private_key()
-        and os.getenv("VONAGE_PHONE_NUMBER")
-    )
 
 
 def to_e164(number: str) -> str:
@@ -101,9 +52,18 @@ def twilio_configured() -> bool:
     )
 
 
-def active_provider() -> str:
-    """Twilio wins when configured (it's the free-trial path); Vonage is the fallback."""
-    return "twilio" if twilio_configured() else "vonage"
+def _answer_url_is_fetchable(answer_url: str) -> bool:
+    """
+    Twilio fetches answer_url from ITS servers, so a loopback host
+    (localhost/127.0.0.1/::1) is unreachable by construction. Catching it
+    here turns Twilio's cryptic 'Url is not a valid URL' into a sentence the
+    owner can act on, and skips a paid API call that is doomed to fail.
+    """
+    try:
+        host = urlparse(answer_url).hostname or ""
+    except ValueError:
+        return False
+    return host not in ("localhost", "127.0.0.1", "::1")
 
 
 def place_call(
@@ -113,24 +73,12 @@ def place_call(
     status_callback: str = None,
 ) -> dict:
     """
-    Place an outbound call through whichever provider is configured
-    (Twilio trial first, Vonage fallback). The callee's phone bridges to
-    answer_url, which returns the voice script (TwiML / NCCO — Meera speaking).
+    Dial via Twilio's REST API (Basic auth, form-encoded). The callee's
+    phone bridges to answer_url, which returns the TwiML script
+    (Meera speaking).
     Returns {"ok": bool, "call_uuid": str|None, "detail": str}
     where detail is always human-friendly.
     """
-    if twilio_configured():
-        return _place_call_twilio(to_number, answer_url, from_number, status_callback)
-    return _place_call_vonage(to_number, answer_url, from_number)
-
-
-def _place_call_twilio(
-    to_number: str,
-    answer_url: str,
-    from_number: str = None,
-    status_callback: str = None,
-) -> dict:
-    """Dial via Twilio's REST API (Basic auth, form-encoded)."""
     sid = os.getenv("TWILIO_ACCOUNT_SID", "")
     token = os.getenv("TWILIO_AUTH_TOKEN", "")
     # E.164 for both legs — "98765 43210" and "+919876543210" both work.
@@ -149,6 +97,17 @@ def _place_call_twilio(
             "ok": False,
             "call_uuid": None,
             "detail": "Phone calling isn't connected yet — a Twilio number is missing from the settings.",
+        }
+
+    if not _answer_url_is_fetchable(answer_url):
+        return {
+            "ok": False,
+            "call_uuid": None,
+            "detail": (
+                "This server is only reachable at localhost, so the phone network can't "
+                "fetch the call script. Start the tunnel (python backend/start_tunnel.py) "
+                "and try again."
+            ),
         }
 
     form = {"To": to, "From": frm, "Url": answer_url}
@@ -213,79 +172,6 @@ def _humanize_twilio_error(code: str, message: str) -> str:
         return "Twilio rejected the account SID or auth token — check TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN in the settings."
 
     return f"Phone network said: {message}"
-
-
-def _place_call_vonage(
-    to_number: str,
-    answer_url: str,
-    from_number: str = None,
-) -> dict:
-    """Dial via the Vonage Voice REST API (JWT auth)."""
-    if not vonage_configured():
-        missing = []
-        if not _application_id() or not _private_key():
-            missing.append("Vonage application keys")
-        if not os.getenv("VONAGE_PHONE_NUMBER"):
-            missing.append("a phone number (Twilio or Vonage)")
-        return {
-            "ok": False,
-            "call_uuid": None,
-            "detail": "Phone calling isn't connected yet — " + " and ".join(missing) + " are missing from the settings.",
-        }
-
-    # Vonage wants bare digits, no country-code '+'.
-    to = to_e164(to_number).lstrip("+")
-    frm = to_e164(from_number or os.getenv("VONAGE_PHONE_NUMBER", "")).lstrip("+")
-
-    if not to:
-        return {
-            "ok": False,
-            "call_uuid": None,
-            "detail": "That doesn't look like a phone number.",
-        }
-
-    body = {
-        "to": [{"type": "phone", "number": to}],
-        "from": {"type": "phone", "number": frm},
-        "answer_url": [answer_url],
-        "answer_method": "POST",
-    }
-
-    try:
-        resp = requests.post(
-            VONAGE_REST_URL,
-            json=body,
-            headers={
-                "Authorization": f"Bearer {_jwt()}",
-                "Content-Type": "application/json",
-            },
-            timeout=30,
-        )
-        data = resp.json() if resp.content else {}
-        if resp.status_code in (200, 201):
-            uuid = (data.get("uuid") or data.get("conversation_uuid") or "")
-            logger.info(f"📞 Outbound call placed to {to_number}: {uuid}")
-            return {"ok": True, "call_uuid": uuid, "detail": "Call started"}
-        # Honest, plain-language failures
-        detail = data.get("detail") or data.get("message") or f"Vonage returned {resp.status_code}"
-        logger.warning(f"Outbound call to {to_number} failed: {detail}")
-        return {"ok": False, "call_uuid": None, "detail": _humanize_vonage_error(detail, resp.status_code)}
-    except Exception as e:
-        logger.error(f"Outbound call error: {e}")
-        return {"ok": False, "call_uuid": None, "detail": "Could not reach the phone network. Check your internet or Vonage settings."}
-
-
-def _humanize_vonage_error(detail: str, status: int) -> str:
-    d = (detail or "").lower()
-    if status == 401:
-        return "Vonage rejected the application credentials — check VONAGE_APPLICATION_ID and the private key."
-    if "from" in d and ("invalid" in d or "not valid" in d or "owned" in d):
-        return "Your Vonage number isn't valid or rented yet — rent a number in the Vonage dashboard."
-    if "quota" in d or "credit" in d or "balance" in d or "insufficient" in d:
-        return "Vonage account has no calling credit left — top it up in the Vonage dashboard."
-    if "invalid destination" in d or "unroutable" in d or "not authorised" in d:
-        return "This phone number can't be called from your account (trial accounts can only call verified numbers)."
-    return f"Phone network said: {detail}"
 
 
 def parse_call_list(rows: list) -> tuple[list, list]:

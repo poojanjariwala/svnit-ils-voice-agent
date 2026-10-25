@@ -46,10 +46,10 @@
 ## Judge Q&A cheatsheet
 
 - **"Is it really the same voice as the phone?"** — Yes: greeting, answers, farewell all use one Edge neural voice, sanitized so no markdown/emojis are ever spoken.
-- **"Can it actually place real phone calls?"** — Yes — Vonage Voice API is fully wired (JWT auth, dialer, campaigns). The on-stage path stays in-browser so the demo never depends on venue network/telephony.
+- **"Can it actually place real phone calls?"** — Yes — Twilio Voice API is fully wired (signed webhooks, dialer, campaigns). The on-stage path stays in-browser so the demo never depends on venue network/telephony.
 - **"What stops the caller from detecting it's AI?"** — Persona prompts (spoken-style numbers, fillers like "ji", 1–3 sentences), it mirrors the caller's language, and it never self-identifies as AI — it offers a callback like a human receptionist.
 - **"Scale?"** — SQLite → Postgres is a config change; the AI stack is stateless HTTP. Rate limits are the real ceiling; Groq's free tier handles a solid demo volume.
-- **"Cost per month?"** — ₹0. Groq free tier, Edge TTS free, Whisper free on Groq. Vonage only if you want PSTN calling (~€0.85/mo number + per-minute).
+- **"Cost per month?"** — ₹0. Groq free tier, Edge TTS free, Whisper free on Groq. Twilio only if you want PSTN calling (trial number free; paid numbers from ~$1.15/mo + per-minute).
 
 ## If something breaks on stage
 

@@ -17,6 +17,12 @@
 # TODO: Add full initialization script here
 # ─────────────────────────────────────────────
 import os
+import sys
+
+# Ensure UTF-8 output on Windows consoles
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 from sqlalchemy import create_engine
 from models import Base
 
@@ -37,8 +43,7 @@ print("📝 Creating tables...")
 Base.metadata.create_all(bind=engine)
 
 print("✅ Database initialized successfully!")
-print("📊 Tables created:")
-print("   ├─ businesses")
-print("   ├─ calls")
-print("   ├─ conversations")
-print("   └─ analytics")
+print("📊 Tables ready:")
+for table_name in Base.metadata.tables.keys():
+    print(f"   ├─ {table_name}")
+

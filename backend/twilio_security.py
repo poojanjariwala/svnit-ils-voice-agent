@@ -37,12 +37,15 @@ def public_url_for(request: Request) -> str:
     forwarded_host = request.headers.get("x-forwarded-host")
 
     if forwarded_proto and forwarded_host:
+        # Built from .path (query stripped), so append the query back on.
         url = f"{forwarded_proto}://{forwarded_host}{request.url.path}"
+        if request.url.query:
+            url = f"{url}?{request.url.query}"
     else:
+        # str(request.url) already includes the query string — appending it
+        # again would double it (?oc=a?oc=a) and break Twilio's signature on
+        # outbound event webhooks, which carry ?oc={outbound_id}.
         url = str(request.url)
-
-    if request.url.query:
-        url = f"{url}?{request.url.query}"
     return url
 
 

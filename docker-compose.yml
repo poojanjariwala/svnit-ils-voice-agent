@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+  # ─────────────────────────────────────────────────────────────
+  # FastAPI Application Server
+  # ─────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: voxagent_api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=postgresql://voxagent_user:voxagent_secure_pass@postgres:5432/voxagent_db
+      - REDIS_URL=redis://redis:6379/0
+      - OLLAMA_URL=http://ollama:11434/api/generate
+      - OLLAMA_MODEL=mistral
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-http://localhost:8000}
+      # No default here on purpose: a baked-in fallback key would let anyone
+      # mint a valid session token, so Compose refuses to start until it is set.
+      - SECRET_KEY=${SECRET_KEY:?Set SECRET_KEY before starting (e.g. in .env)}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID:-}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN:-}
+      - TWILIO_PHONE_NUMBER=${TWILIO_PHONE_NUMBER:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - voxagent_net
+
+  # ─────────────────────────────────────────────────────────────
+  # Managed PostgreSQL Database
+  # ─────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: voxagent_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: voxagent_db
+      POSTGRES_USER: voxagent_user
+      POSTGRES_PASSWORD: voxagent_secure_pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U voxagent_user -d voxagent_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - voxagent_net
+
+  # ─────────────────────────────────────────────────────────────
+  # Redis - High-speed Session & State Cache
+  # ─────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: voxagent_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - voxagent_net
+
+  # ─────────────────────────────────────────────────────────────
+  # Ollama - Local & Offline LLM Inference
+  # ─────────────────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: voxagent_ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - voxagent_net
+
+networks:
+  voxagent_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  ollama_data:

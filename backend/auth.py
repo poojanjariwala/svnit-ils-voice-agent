@@ -9,8 +9,8 @@
 #     No new dependencies; strong for this scale.
 #   - Token = "uid.expiry.signature" where signature = HMAC-SHA256
 #     over "uid.expiry" with SECRET_KEY. Stateless, no session table.
-#   - Voice webhooks stay unauthenticated: Vonage calls them from
-#     their network and cannot present our tokens.
+#   - Voice webhooks stay unauthenticated: Twilio calls them from
+#     its network and cannot present our tokens.
 # ─────────────────────────────────────────────
 import os
 import hashlib

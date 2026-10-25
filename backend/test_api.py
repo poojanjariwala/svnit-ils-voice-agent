@@ -5,7 +5,7 @@
 #          CRM (leads/calls), outbound calling
 #
 # Auth note: endpoints under /api/* require a bearer token
-# (see auth.py). Voice webhooks stay open for Vonage.
+# (see auth.py). Voice webhooks stay open for Twilio.
 # LLM/TTS are stubbed in webhook tests to stay hermetic.
 # Run:  cd backend && pytest test_api.py -v
 # ─────────────────────────────────────────────
@@ -141,7 +141,7 @@ def test_create_business_success():
     biz = _make_business(data["token"])
     assert biz["success"] is True
     assert biz["business_id"]
-    assert "/voice/answer/" in biz["voice_webhook_url"]
+    assert "/twilio/answer/" in biz["voice_webhook_url"]
 
 
 def test_owner_sees_only_own_businesses():
@@ -213,89 +213,6 @@ def _register_business(name="Voice Test Store", language="gu"):
     return _make_business(data["token"], name=name, language=language)["business_id"]
 
 
-def test_voice_answer_webhook(monkeypatch):
-    async def fake_tts(text, language):
-        return "greeting.mp3"
-    monkeypatch.setattr("main.synthesize_speech", fake_tts)
-
-    business_id = _register_business(language="gu")
-    r = client.post(f"/voice/answer/{business_id}")
-    assert r.status_code == 200
-    ncco = r.json()
-    assert isinstance(ncco, list)
-    # Greeting is pre-synthesized audio in the SAME voice as answers
-    assert ncco[0]["action"] == "play"
-    assert ncco[0]["url"][0].endswith("greeting.mp3")
-    assert ncco[1]["action"] == "input"          # then listens for speech
-    assert business_id in ncco[1]["eventUrl"][0]
-
-
-def test_voice_answer_unknown_business():
-    r = client.post("/voice/answer/doesnotexist")
-    assert r.status_code == 200
-    assert r.json() == []
-
-
-def test_voice_event_uses_caller_speech(monkeypatch):
-    calls = []
-
-    def fake_agent_response(**kwargs):
-        history = kwargs["conversation_history"]
-        calls.append({"query": kwargs["customer_query"], "history": list(history)})
-        history.append({"role": "user", "content": kwargs["customer_query"]})
-        history.append({"role": "assistant", "content": "stubbed answer"})
-        return "stubbed answer"
-
-    async def fake_tts(text, language):
-        return "stubbed.mp3"
-
-    monkeypatch.setattr("main.get_agent_response", fake_agent_response)
-    monkeypatch.setattr("main.synthesize_speech", fake_tts)
-
-    business_id = _register_business(language="hi")
-
-    r1 = client.post(
-        f"/voice/event/{business_id}",
-        json={"call_uuid": "call-abc", "speech_results": [{"text": "3 series ka price kya hai?"}]},
-    )
-    assert r1.status_code == 200, r1.text
-    ncco1 = r1.json()
-    assert ncco1[0]["action"] == "play"
-    assert ncco1[1]["action"] == "input"
-    assert calls and calls[0]["query"] == "3 series ka price kya hai?"
-
-    r2 = client.post(
-        f"/voice/event/{business_id}",
-        json={"call_uuid": "call-abc", "speech_results": [{"text": "aur x5?"}]},
-    )
-    assert r2.status_code == 200
-    assert calls[1]["query"] == "aur x5?"
-    assert calls[1]["history"][0]["content"] == "3 series ka price kya hai?"
-
-
-def test_voice_event_silence_then_farewell(monkeypatch):
-    async def fake_tts(text, language):
-        return "stubbed.mp3"
-
-    monkeypatch.setattr("main.get_agent_response", lambda **kw: "ok")
-    monkeypatch.setattr("main.synthesize_speech", fake_tts)
-
-    business_id = _register_business(language="en")
-
-    r1 = client.post(f"/voice/event/{business_id}", json={"call_uuid": "call-sil", "speech_results": []})
-    assert r1.status_code == 200
-    ncco1 = r1.json()
-    assert ncco1[0]["action"] == "play"
-    assert ncco1[1]["action"] == "input"
-
-    r2 = client.post(f"/voice/event/{business_id}", json={"call_uuid": "call-sil", "speech_results": []})
-    assert r2.status_code == 200
-    ncco2 = r2.json()
-    # Farewell is audio in the same human voice — then the call ends
-    assert ncco2[0]["action"] == "play"
-    assert len(ncco2) == 1
-
-
 # ─────────────────────────────────────────────
 # Wizard knowledge base + CRM
 # ─────────────────────────────────────────────
@@ -322,65 +239,6 @@ def test_create_business_with_wizard_answers_only():
     # KB must contain the structured wizard data
     assert "Sharma Automobiles" in biz["knowledge_preview"]
     assert "62 lakh" in biz["knowledge_preview"]
-
-
-def test_voice_event_saves_conversation_and_lead(monkeypatch):
-    """Turns are persisted and a lead is extracted when the call ends"""
-    import main as main_mod
-
-    def fake_agent_response(**kwargs):
-        history = kwargs["conversation_history"]
-        history.append({"role": "user", "content": kwargs["customer_query"]})
-        history.append({"role": "assistant", "content": "Sure ji, may I have your name and mobile number?"})
-        return "Sure ji, may I have your name and mobile number?"
-
-    async def fake_tts(text, language):
-        return "stubbed.mp3"
-
-    monkeypatch.setattr("main.get_agent_response", fake_agent_response)
-    monkeypatch.setattr("main.synthesize_speech", fake_tts)
-    monkeypatch.setattr(
-        main_mod,
-        "extract_lead_info",
-        lambda history: {
-            "caller_name": "Raj Patel",
-            "caller_number": "9876543210",
-            "interest": "BMW X1 test drive",
-            "intent": "test_drive",
-            "scheduled_for": "tomorrow 5pm",
-            "notes": "Wants white colour",
-        },
-    )
-
-    data = _make_user(name="CRM Owner")
-    biz = _make_business(data["token"], name="CRM Motors")
-    bid = biz["business_id"]
-    call_uuid = f"crm-{uuid.uuid4().hex[:8]}"  # unique per run: DB persists
-
-    client.post(f"/voice/event/{bid}", json={"call_uuid": call_uuid, "speech_results": [{"text": "I want to book a test drive"}]})
-    client.post(f"/voice/event/{bid}", json={"call_uuid": call_uuid, "speech_results": [{"text": "My number is 9876543210"}]})
-    # two silences → call over → lead extracted
-    client.post(f"/voice/event/{bid}", json={"call_uuid": call_uuid, "speech_results": []})
-    client.post(f"/voice/event/{bid}", json={"call_uuid": call_uuid, "speech_results": []})
-
-    # Lead appears in the owner's CRM
-    leads = client.get("/api/leads", headers=_auth(data["token"])).json()["leads"]
-    assert len(leads) == 1
-    l = leads[0]
-    assert l["caller_name"] == "Raj Patel"
-    assert l["caller_number"] == "9876543210"
-    assert l["intent"] == "test_drive"
-    assert l["scheduled_for"] == "tomorrow 5pm"
-    assert l["status"] == "new"
-
-    # Status update works
-    r = client.patch(f"/api/leads/{l['id']}", json={"status": "contacted"}, headers=_auth(data["token"]))
-    assert r.status_code == 200 and r.json()["status"] == "contacted"
-
-    # Transcript view shows the exchanges
-    calls = client.get("/api/calls", headers=_auth(data["token"])).json()["calls"]
-    assert calls and calls[0]["turns"], "transcript turns were not saved"
-    assert any("test drive" in t["caller"] for t in calls[0]["turns"])
 
 
 def test_leads_require_auth_and_owner_isolation():
@@ -418,8 +276,8 @@ def test_call_now_invalid_number():
     assert r.status_code == 400
 
 
-def test_call_now_without_vonage_honest_failure():
-    """Without Vonage keys, the API says so in plain language (and env may have keys — accept both)"""
+def test_call_now_without_provider_honest_failure():
+    """Without provider keys, the API says so in plain language (and env may have keys — accept both)"""
     data = _make_user(name="Honest Owner")
     biz = _make_business(data["token"], name="Honest Motors")
     r = client.post(
@@ -471,9 +329,13 @@ def test_campaign_upload_csv_and_auth():
 def test_campaign_start_stops_cleanly_on_dial_failure(monkeypatch):
     """Campaign dialer stops cleanly with honest per-row reasons when dialing fails"""
     def failing_place_call(to_number, answer_url, from_number=None, status_callback=None):
-        return {"ok": False, "call_uuid": None, "detail": "Vonage account has no calling credit left — top it up in the Vonage dashboard."}
+        return {"ok": False, "call_uuid": None, "detail": "Twilio account has no calling credit left — top it up in the Twilio dashboard."}
 
     monkeypatch.setattr("main.place_call", failing_place_call)
+    # The dialer falls back to a simulator when no provider is configured
+    # (always true in tests). Pretend Twilio is wired so this exercises the
+    # real-dial failure path the test is about.
+    monkeypatch.setattr("main.twilio_configured", lambda: True)
 
     data = _make_user(name="Start Owner")
     biz = _make_business(data["token"], name="Start Motors")
@@ -649,6 +511,33 @@ def test_twilio_place_call_form(monkeypatch):
     assert "Calls.json" in captured["url"]
 
 
+def test_place_call_refuses_loopback_answer_url(monkeypatch):
+    """A localhost answer URL is unreachable from Twilio's servers — refuse it
+    with an actionable sentence instead of paying Twilio to reject the dial.
+    (Regression: this surfaced as 'Url is not a valid URL' on the dashboard.)"""
+    import phone_service
+
+    def fail_if_called(*a, **k):
+        raise AssertionError("place_call must not contact Twilio for a loopback URL")
+
+    monkeypatch.setattr(phone_service.requests, "post", fail_if_called)
+    monkeypatch.setenv("TWILIO_ACCOUNT_SID", "ACtest123")
+    monkeypatch.setenv("TWILIO_AUTH_TOKEN", "tok")
+    monkeypatch.setenv("TWILIO_PHONE_NUMBER", "+15551234567")
+
+    for url in (
+        "http://localhost:8000/twilio/answer/d0011610",
+        "http://127.0.0.1:8000/twilio/answer/abc",
+        "http://[::1]:8000/twilio/answer/abc",
+    ):
+        res = phone_service.place_call(to_number="918200344429", answer_url=url)
+        assert res["ok"] is False, url
+        assert "localhost" in res["detail"]
+        assert "start_tunnel" in res["detail"]
+        # never leak the raw Twilio wording that sent the owner hunting
+        assert "not a valid URL" not in res["detail"]
+
+
 def test_twilio_unverified_number_humanized(monkeypatch):
     import phone_service
 
@@ -755,6 +644,105 @@ def test_outbound_closes_orphaned_calling_rows():
     assert by_id[stale_id]["status"] == "done"
     assert "no status update" in by_id[stale_id]["detail"]
     assert by_id[fresh_id]["status"] == "calling", "a call inside the window must stay live"
+
+
+def test_outbound_turns_use_marketer_persona_not_receptionist(monkeypatch):
+    """On an OUTBOUND call the customer didn't dial us, so Meera must introduce
+    herself and pitch — not answer with the inbound 'the phone is ringing,
+    how can I help you' receptionist prompt. The outbound-answer webhook seeds
+    the reason-for-calling into the session; the event turn must send the
+    OUTBOUND system prompt (with that reason) to the LLM."""
+    import main
+    from database import SessionLocal
+    from models import OutboundCall
+
+    data = _make_user(name="Persona Owner")
+    bid = _make_business(data["token"], name="Persona Motors")["business_id"]
+
+    oc_id = f"pers{uuid.uuid4().hex[:8]}"
+    session = SessionLocal()
+    try:
+        session.add(OutboundCall(
+            id=oc_id, business_id=bid, caller_name="Rajesh",
+            caller_number="9876500099", info="the X5 exchange offer",
+            status="pending",
+        ))
+        session.commit()
+    finally:
+        session.close()
+
+    async def fake_tts(text, language):
+        return "persona.mp3"
+    monkeypatch.setattr("main.synthesize_speech", fake_tts)
+
+    # Capture every system prompt the LLM is asked to use.
+    captured_system_prompts = []
+
+    def fake_create(**kwargs):
+        msgs = kwargs.get("messages") or []
+        if msgs and msgs[0].get("role") == "system":
+            captured_system_prompts.append(msgs[0]["content"])
+        return SimpleNamespace(choices=[SimpleNamespace(
+            message=SimpleNamespace(content="Hello ji, this is Meera from Persona Motors."))])
+
+    fake_client = SimpleNamespace(chat=SimpleNamespace(
+        completions=SimpleNamespace(create=fake_create)))
+
+    with mock.patch("llm_service._get_client", return_value=fake_client):
+        # 1. We call the customer → outbound-answer seeds the session + reason
+        r_answer = _tw(f"/twilio/outbound-answer/{oc_id}")
+        assert r_answer.status_code == 200, r_answer.text
+
+        # 2. The customer replies → event turn must use the OUTBOUND persona
+        r_event = _tw(
+            f"/twilio/event/{bid}?oc={oc_id}",
+            data={"CallSid": f"CA{oc_id}", "SpeechResult": "hello, who is this?"},
+        )
+        assert r_event.status_code == 200, r_event.text
+
+    assert captured_system_prompts, "no LLM call captured"
+    final_prompt = captured_system_prompts[-1]
+    # The marketer persona, not the receptionist one:
+    assert "OUTBOUND call" in final_prompt or "dialed the customer" in final_prompt, (
+        f"outbound turn used the wrong persona: {final_prompt[:120]}")
+    # It carries the specific reason pulled from the CSV 'info' column:
+    assert "X5 exchange offer" in final_prompt
+    # And it must NOT be the inbound receptionist prompt:
+    assert "phone is ringing" not in final_prompt
+
+
+def test_inbound_turns_keep_receptionist_persona(monkeypatch):
+    """A customer calling US must still get the inbound receptionist persona —
+    the outbound switch must not leak into inbound calls."""
+    import main
+
+    data = _make_user(name="Inbound Persona Owner")
+    bid = _make_business(data["token"], name="Inbound Motors")["business_id"]
+
+    async def fake_tts(text, language):
+        return "in.mp3"
+    monkeypatch.setattr("main.synthesize_speech", fake_tts)
+
+    captured = []
+
+    def fake_create(**kwargs):
+        msgs = kwargs.get("messages") or []
+        if msgs and msgs[0].get("role") == "system":
+            captured.append(msgs[0]["content"])
+        return SimpleNamespace(choices=[SimpleNamespace(
+            message=SimpleNamespace(content="Certainly, how can I help you today?"))])
+
+    fake_client = SimpleNamespace(chat=SimpleNamespace(
+        completions=SimpleNamespace(create=fake_create)))
+
+    with mock.patch("llm_service._get_client", return_value=fake_client):
+        r = _tw(f"/twilio/event/{bid}",
+                data={"CallSid": "CAinbound1", "SpeechResult": "do you have the X5?"})
+        assert r.status_code == 200, r.text
+
+    assert captured, "no LLM call captured"
+    assert "phone is ringing" in captured[-1], "inbound call lost its receptionist persona"
+    assert "OUTBOUND call" not in captured[-1]
 
 
 def test_migration_adds_detail_columns_to_an_existing_table():
@@ -1140,3 +1128,128 @@ def test_migration_script_refuses_a_sqlite_target():
     )
     assert out.returncode != 0
     assert "SQLite" in (out.stdout + out.stderr)
+
+
+# ─────────────────────────────────────────────────────────────
+# Tier-1 hardening: a webhook must never 5xx — a 5xx makes Twilio
+# play "application error" and hang up on a live caller.
+# ─────────────────────────────────────────────────────────────
+
+def _broken_tts(text, language):
+    raise RuntimeError("edge tts is down (simulated)")
+
+
+def test_twilio_answer_survives_tts_failure(monkeypatch):
+    """synthesize_speech raising must still yield 200 + valid TwiML."""
+    import xml.etree.ElementTree as ET
+
+    async def boom(text, language):
+        _broken_tts(text, language)
+    monkeypatch.setattr("main.synthesize_speech", boom)
+
+    business_id = _register_business(language="hi")
+    r = _tw(f"/twilio/answer/{business_id}")
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"].startswith("application/xml")
+
+    root = ET.fromstring(r.text)  # raises if the TwiML is malformed
+    assert root.tag == "Response"
+    say = root.find("Say")
+    assert say is not None and (say.text or "").strip()
+    assert say.get("language") == "hi-IN"  # apology spoken in the call's language
+
+
+def test_twilio_event_speaks_the_same_text_when_tts_dies(monkeypatch):
+    """The <Say> fallback carries the exact text we were going to play."""
+    import xml.etree.ElementTree as ET
+
+    async def boom(text, language):
+        _broken_tts(text, language)
+    monkeypatch.setattr("main.synthesize_speech", boom)
+    monkeypatch.setattr("main.get_agent_response", lambda **kw: "नमस्ते, दाम जानना है")
+
+    business_id = _register_business(language="hi")
+    r = _tw(f"/twilio/event/{business_id}", data={"CallSid": "CAttsdown", "SpeechResult": "Price?"})
+    assert r.status_code == 200, r.text
+    root = ET.fromstring(r.text)
+    say = root.find("Say")
+    assert say is not None
+    assert "नमस्ते" in (say.text or "")  # the agent's reply, spoken instead of played
+    assert root.find("Gather") is not None  # the call keeps going
+    assert root.find("Play") is None
+
+
+def test_twilio_webhook_failure_returns_200_apology(monkeypatch):
+    """Any unexpected exception inside the handler degrades to spoken apology."""
+    import xml.etree.ElementTree as ET
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("simulated database explosion")
+    monkeypatch.setattr("main.get_business_record", explode)
+
+    r = _tw("/twilio/answer/biz-that-cannot-load")
+    assert r.status_code == 200, r.status_code
+    root = ET.fromstring(r.text)
+    assert root.tag == "Response"
+    say = root.find("Say")
+    assert say is not None and (say.text or "").strip()
+    assert say.get("language") == "en-US"  # unknown language → English apology
+
+
+def test_public_url_probe_retries_until_green(monkeypatch, caplog):
+    """One flaky attempt must not report tunnel drift for a live tunnel."""
+    import logging as _logging
+    import main
+
+    calls = []
+
+    def flaky_head(url, **kwargs):
+        calls.append(url)
+        if len(calls) == 1:
+            raise RuntimeError("simulated connect timeout")
+        return SimpleNamespace(status_code=200)
+
+    monkeypatch.setattr("main.requests.head", flaky_head)
+    monkeypatch.setattr("main.time.sleep", lambda s: None)
+    with caplog.at_level(_logging.INFO, logger="main"):
+        main._check_public_url()
+
+    assert len(calls) == 2  # stopped retrying the moment it went green
+    assert any("PUBLIC_BASE_URL reachable" in r.getMessage() for r in caplog.records)
+    assert not any("is NOT reachable" in r.getMessage() for r in caplog.records)
+
+
+def test_public_url_probe_gives_up_loudly_after_retries(monkeypatch, caplog):
+    """A stale tunnel URL answers 503 every time — warn after exactly N tries."""
+    import logging as _logging
+    import main
+
+    calls, sleeps = [], []
+
+    def dead_head(url, **kwargs):
+        calls.append(url)
+        return SimpleNamespace(status_code=503)  # localtunnel "Tunnel Unavailable"
+
+    monkeypatch.setattr("main.requests.head", dead_head)
+    monkeypatch.setattr("main.time.sleep", lambda s: sleeps.append(s))
+    with caplog.at_level(_logging.WARNING, logger="main"):
+        main._check_public_url()
+
+    assert len(calls) == main.PUBLIC_URL_PROBE_ATTEMPTS
+    assert sleeps == [main.PUBLIC_URL_PROBE_PAUSE] * (main.PUBLIC_URL_PROBE_ATTEMPTS - 1)
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == _logging.WARNING]
+    assert any("is NOT reachable after 3 attempts" in w for w in warnings), warnings
+
+
+def test_public_url_probe_is_deferred_past_socket_bind(monkeypatch):
+    """The probe runs AFTER boot: during the startup event uvicorn's socket
+    isn't accepting yet, so a localhost PUBLIC_BASE_URL could never answer
+    and a healthy local run would be flagged as tunnel drift."""
+    import asyncio
+    import main
+
+    calls = []
+    monkeypatch.setattr(main, "_check_public_url", lambda: calls.append("probed"))
+    asyncio.run(main._probe_public_url_after_boot(delay=0))
+    assert calls == ["probed"]  # deferred wrapper still runs the probe
+

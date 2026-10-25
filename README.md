@@ -105,8 +105,9 @@ Add your Twilio credentials to `.env`:
 Get a number and credits at https://www.twilio.com/try-twilio. Trial accounts can only call
 numbers you verify by SMS in the console — verify yours before testing outbound.
 
-Twilio is called over plain HTTPS, so there is no `twilio` package to install. Vonage is
-retained as a fallback; see `.env.example` for the extra JWT keys it needs.
+Twilio is called over plain HTTPS, so there is no `twilio` package to install. Twilio is the
+only telephony provider; everything lives in [phone_service.py](backend/phone_service.py) and
+the four `/twilio/*` webhooks.
 
 ### Numbers are normalised to E.164
 
@@ -126,7 +127,8 @@ verified"* instead of blaming the number you were calling.
 3. `http://localhost:8000`
 
 The override file exists so a new tunnel URL can apply **without restarting the server**.
-`make_call.py` and `start_tunnel_task.py` both write it; plain `start_tunnel.py` does not.
+`start_tunnel.py` writes it once the tunnel reports its URL, so starting the tunnel also
+points the app at it — one step, no restart.
 
 This matters because localtunnel does not always honour a requested subdomain. It has handed
 back `curly-fish-50.loca.lt` while `public_url.txt` still said `public-things-appear`, and the
@@ -134,38 +136,13 @@ app kept building Twilio webhook URLs against a host that no longer existed — 
 silently 503'd. **Always confirm `public_url.txt` matches the URL the tunnel actually reported**;
 if you are not sure, delete the file and fall back to `.env`.
 
-### Running it in the background on Windows
+### Startup self-check
 
-The dev loop that survived restarts best on Windows was two scheduled tasks rather than open
-terminals:
-
-```powershell
-# server — must run from inside backend/
-cd backend
-powershell -NoProfile -ExecutionPolicy Bypass -File "./start_server_task.ps1"
-
-# tunnel
-powershell -NoProfile -Command "Start-ScheduledTask -TaskName 'VoxTunnel'"
-```
-
-`start_server_task.ps1` registers and starts a task called `VoxServer` that runs
-[run_server.bat](backend/run_server.bat) (logs to `backend/server.log`). `VoxTunnel` runs
-[run_tunnel_task.bat](backend/run_tunnel_task.bat) →
-[start_tunnel_task.py](backend/start_tunnel_task.py), which starts the tunnel **and** writes
-the URL it actually received into `public_url.txt` — the two steps have to be one, for the
-reason above. Check on it with:
-
-```powershell
-Get-ScheduledTask -TaskName 'VoxServer','VoxTunnel' |
-  Select-Object TaskName, State
-
-netstat -ano | Select-String ':8000.*LISTENING'   # need a PID
-Invoke-WebRequest http://localhost:8000/api/health
-```
-
-`start_server_task.ps1` is parameterised (`-TaskName`, `-BatPath`) so the same script backs both
-tasks. If port 8000 is already held by a dead process, find the PID with
-`netstat -ano | grep ':8000' | grep LISTENING` and `Stop-Process -Id <pid> -Force` it first.
+About two seconds after boot the app probes `PUBLIC_BASE_URL` (3 attempts, 5s each) and logs
+`✅ PUBLIC_BASE_URL reachable` or a loud ⚠️ warning if every attempt failed — that warning is
+the signal that inbound calls will not connect. `GET /api/phone/status` does the same kind of
+real probe against Twilio (memoised for 30s) instead of reporting "connected" just because
+credentials exist.
 
 ---
 
@@ -210,20 +187,22 @@ svnit-ils-voice-agent/
 │   ├── auth.py            # Signup/login, PBKDF2 hashing, bearer tokens
 │   ├── models.py          # SQLAlchemy models (User, Business, Lead, Call, OutboundCall, Campaign)
 │   ├── database.py        # Engine, session, owner-scoped CRUD helpers, schema creation/migration
-│   ├── phone_service.py   # Provider selection, E.164 normalisation, Twilio/Vonage call placement
+│   ├── phone_service.py   # Twilio call placement, E.164 normalisation, trial-error humanising
 │   ├── twilio_security.py # X-Twilio-Signature validation for every /twilio/* webhook
-│   ├── llm_service.py     # Groq response generation
+│   ├── campaign_manager.py# Async outbound campaign dialing queue
+│   ├── compliance.py      # Consent registry + TRAI calling-hours/DND checks
+│   ├── llm_service.py     # Groq response generation + lead extraction
 │   ├── voice_service.py   # Groq Whisper STT + Edge TTS
 │   ├── doc_processor.py   # PDF / TXT / Excel text extraction
-│   ├── start_tunnel.py    # Public tunnel for telephony webhooks (prints the URL)
-│   ├── start_tunnel_task.py  # Tunnel + public_url.txt sync, for the scheduled task
-│   ├── make_call.py       # One-shot: tunnel up → sync URL → place a call
+│   ├── start_tunnel.py    # Public tunnel for telephony webhooks; writes public_url.txt
+│   ├── twilio_setup.py    # One-time: claim a trial number, write creds to .env
+│   ├── twilio_verify.py   # One-time: verify your own number as caller ID (trial accounts)
+│   ├── twilio_smoke.py    # Live signed-webhook checks against a running server
+│   ├── test_accuracy.py   # Ad-hoc live battery: KB answers + STT round-trip
 │   ├── migrate_to_postgres.py  # Copy the local SQLite DB into Postgres
 │   ├── init_db.py         # Create tables
 │   ├── conftest.py        # Points pytest at a throwaway DB (see Testing)
-│   ├── test_api.py        # Pytest suite (63 tests)
-│   ├── smoke_test.py      # Live end-to-end HTTP checks against a running server
-│   └── twilio_smoke.py    # Live Twilio-specific checks, signed + forgery checks
+│   └── test_api.py        # Pytest suite (66 tests)
 │
 ├── frontend/              # Served by FastAPI at /
 │   ├── index.html         # Public landing page
@@ -232,17 +211,15 @@ svnit-ils-voice-agent/
 │
 ├── tests/                 # Integration tests (unit tests live in backend/test_api.py)
 ├── sample-data/           # Sample knowledge docs + a sample customer CSV
+├── docs/                  # Production economics write-up
 ├── Dockerfile
 ├── .dockerignore
+├── docker-compose.yml     # FastAPI + Postgres + Redis + Ollama
 ├── render.yaml            # Render blueprint: web service + Postgres
 ├── requirements.txt
 ├── DEMO.md                # 3-minute demo script
 └── .env.example
 ```
-
-`backend/` also holds a number of one-off scripts from working on the Twilio setup
-(`buy_number.py`, `set_number.py`, `twilio_setup.py`, `twilio_verify.py`, `check_calls.py`,
-`call_detail.py`). They are scratch tools, not part of the app.
 
 ---
 
@@ -250,16 +227,15 @@ svnit-ils-voice-agent/
 
 ```bash
 cd backend
-pytest test_api.py -v                       # 63 unit tests, no server needed
+pytest test_api.py -v                       # 66 unit tests, no server needed
 
 python -m uvicorn main:app --port 8000 &    # then, against a live server:
-python smoke_test.py
 python twilio_smoke.py
 ```
 
 `test_api.py` stubs the LLM and TTS, so it is hermetic and needs no API keys.
-`smoke_test.py` and `twilio_smoke.py` hit a **running** server and make **real** requests — they
-do not place calls, but they do consume provider API quota.
+`twilio_smoke.py` hits a **running** server and makes **real** requests — it does not place
+calls, but it does consume provider API quota.
 
 **Tests run against a temporary database.** `backend/conftest.py` repoints `DATABASE_URL` at a
 file in your temp directory before any app module is imported, creates the schema there, and
@@ -267,8 +243,8 @@ deletes the file when the session ends. Without it, `database.py` builds its eng
 `DATABASE_URL` at import time and every `pytest` run writes users, businesses and leads into
 your real database — which is how the Insights sheet filled up with fixture leads like
 "Raj Patel / BMW X1 test drive". **If you ever move or delete `conftest.py`, re-check that
-tests are not writing to `business_voice_agents.db`.** Note that `smoke_test.py` and
-`twilio_smoke.py` bypass pytest entirely and *do* hit the real database.
+tests are not writing to `business_voice_agents.db`.** Note that `twilio_smoke.py` bypasses
+pytest entirely and *does* hit the real database.
 
 `twilio_smoke.py` signs its webhook requests with the real `twilio-python` algorithm and
 asserts that a forged request is rejected, so the signature check is covered by a test rather
@@ -296,9 +272,9 @@ Everything under `/api/*` except signup, login and health needs an
 `POST /api/campaigns/{id}` · `POST /api/campaigns/{id}/start` · `POST /api/campaigns/{id}/stop` ·
 `GET /api/campaigns/{id}`
 
-**Webhooks** (called by the provider; Twilio routes are signature-verified) —
+**Webhooks** (called by Twilio; signature-verified) —
 `POST /twilio/answer/{id}` · `POST /twilio/outbound-answer/{id}` · `POST /twilio/event/{id}` ·
-`POST /twilio/status/{id}`, and the matching `/voice/*` routes for Vonage.
+`POST /twilio/status/{id}`.
 
 `GET /api/health` is public and returns `{"status": "running", "version": ...}`.
 
@@ -317,6 +293,16 @@ byte for byte on the test cases, including the two details that are easy to get 
 signature covers the exact URL Twilio called (so the port may or may not be present depending on
 which side you ask), and behind a proxy the scheme and host come from `X-Forwarded-*` — which is
 why the Docker image runs uvicorn with `--proxy-headers`.
+
+### The webhooks always answer
+
+A 5xx from a webhook is what makes a caller hear Twilio's "application error", so every
+`/twilio/*` route is wrapped: an unexpected exception still returns **200 + valid TwiML** — a
+`<Say>` apology in the business's language — with the stack trace logged server-side. A TTS
+failure degrades to `<Say>` carrying the same text instead of `<Play>`, and the blocking Groq
+calls run off the event loop so a slow LLM response cannot breach Twilio's 15-second webhook
+timeout. Greeting audio is cached per business+language, so a second ring does not synthesise
+live.
 
 ---
 
@@ -366,7 +352,22 @@ connection string.
 
 ---
 
+## What's implemented beyond the core loop
+
+- **Bulk campaign manager** ([campaign_manager.py](backend/campaign_manager.py)) — works through
+  an uploaded CSV list with live progress, stopping cleanly with a per-row reason when a dial
+  fails.
+- **TRAI compliance helpers** ([compliance.py](backend/compliance.py)) — consent registry,
+  08:00–21:00 calling-hours check, and multilingual call-recording disclosure text.
+- **Self-hosted stack** ([docker-compose.yml](docker-compose.yml)) — FastAPI + Postgres 15 +
+  Redis 7 + Ollama, for running without cloud dependencies.
+- **Unit economics** ([docs/PRODUCTION_ECONOMICS.md](docs/PRODUCTION_ECONOMICS.md)) — cost model
+  for running this per-business.
+
+---
+
 ## Known gaps
+
 
 Things that are genuinely not done, stated plainly:
 
@@ -375,15 +376,10 @@ Things that are genuinely not done, stated plainly:
   running. What *is* verified: all 8 models compile to Postgres DDL, URL normalisation, engine
   construction, schema reflection with matching column counts, and the migration guards. Treat
   the first deploy as the real test.
-- **`/voice/*` (Vonage) webhooks are still unsigned.** Twilio's routes are verified; these are
-  the same class of hole on a different provider, and Vonage authenticates by JWT instead.
-- **`/api/phone/status` reports `connected: true` based only on whether credentials are
-  present.** It does not check whether the tunnel is actually reachable, nor whether the Twilio
-  account is still in trial with minutes left. It will happily say "connected" while every
-  outbound call 503s.
-- **Tunnel drift is still the most common cause of "it was working yesterday".** See
-  *Public URL precedence* above. An alarm that checks the public URL from the server itself
-  would close this properly.
+- **Tunnel drift is still the most common cause of "it was working yesterday".** The startup
+  probe above will *tell* you the URL is dead, and `start_tunnel.py` now rewrites
+  `public_url.txt` itself — but localtunnel still mints a new random URL whenever it restarts,
+  so a dropped tunnel needs the script re-running.
 - **Call status can be lost.** If a status callback never arrives, the row stays in `calling`.
   Reads reconcile anything older than the 15-minute call window, but there is no retry.
 - **Sessions are in process memory.** `CALL_SESSIONS` does not survive a restart and will not
